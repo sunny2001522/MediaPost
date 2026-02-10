@@ -95,11 +95,11 @@ function getStatusColor(status: string) {
 
 <template>
   <UModal v-model="isOpen">
-    <UCard>
+    <UCard :ui="{ ring: 'ring-1 ring-gray-200', divide: 'divide-y divide-gray-100' }">
       <template #header>
         <div class="flex items-center gap-2">
-          <UIcon name="i-heroicons-paper-airplane" class="w-5 h-5 text-primary-500" />
-          <span class="font-semibold">發布貼文</span>
+          <UIcon name="i-heroicons-paper-airplane" class="w-5 h-5 text-gray-600" />
+          <span class="font-semibold text-gray-900">發布貼文</span>
         </div>
       </template>
 
@@ -107,7 +107,7 @@ function getStatusColor(status: string) {
         <!-- 預覽 -->
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-2">貼文預覽</label>
-          <div class="p-3 bg-gray-50 rounded-lg text-sm text-gray-700 max-h-40 overflow-y-auto">
+          <div class="p-3 bg-gray-50 rounded-lg text-sm text-gray-700 max-h-40 overflow-y-auto whitespace-pre-wrap">
             {{ content }}
           </div>
           <p class="text-xs text-gray-400 mt-1">{{ content.length }} 字</p>
@@ -123,20 +123,20 @@ function getStatusColor(status: string) {
               class="flex items-center justify-between p-3 rounded-lg border-2 transition-colors"
               :class="[
                 selectedPlatforms.includes(platform.id)
-                  ? 'border-primary-500 bg-primary-50'
+                  ? 'border-gray-900 bg-gray-50'
                   : 'border-gray-200 hover:border-gray-300'
               ]"
               @click="togglePlatform(platform.id)"
             >
               <div class="flex items-center gap-3">
                 <UIcon :name="platform.icon" class="w-5 h-5 text-gray-600" />
-                <span class="font-medium">{{ platform.name }}</span>
-                <UBadge v-if="!platform.ready" color="yellow" size="xs">需手動</UBadge>
+                <span class="font-medium text-gray-900">{{ platform.name }}</span>
+                <UBadge v-if="!platform.ready" color="gray" size="xs">需手動</UBadge>
               </div>
               <UIcon
                 :name="selectedPlatforms.includes(platform.id) ? 'i-heroicons-check-circle-solid' : 'i-heroicons-circle'"
                 class="w-5 h-5"
-                :class="selectedPlatforms.includes(platform.id) ? 'text-primary-500' : 'text-gray-300'"
+                :class="selectedPlatforms.includes(platform.id) ? 'text-gray-900' : 'text-gray-300'"
               />
             </button>
           </div>
@@ -150,14 +150,14 @@ function getStatusColor(status: string) {
             :key="result.platform"
             class="flex items-center justify-between p-2 rounded-lg"
             :class="{
-              'bg-green-50': result.status === 'success',
+              'bg-gray-100': result.status === 'success',
               'bg-red-50': result.status === 'failed',
-              'bg-yellow-50': result.status === 'pending' || result.status === 'manual'
+              'bg-gray-50': result.status === 'pending' || result.status === 'manual'
             }"
           >
             <div class="flex items-center gap-2">
               <UIcon :name="getStatusIcon(result.status)" :class="`text-${getStatusColor(result.status)}-500`" />
-              <span class="text-sm">{{ platforms.find(p => p.id === result.platform)?.name }}</span>
+              <span class="text-sm text-gray-900">{{ platforms.find(p => p.id === result.platform)?.name }}</span>
             </div>
             <UBadge :color="getStatusColor(result.status)" size="xs">
               {{ result.status === 'manual' ? '需手動' : result.status }}
@@ -173,7 +173,7 @@ function getStatusColor(status: string) {
           </UButton>
           <UButton
             v-if="results.length === 0"
-            color="primary"
+            color="black"
             :loading="isPublishing"
             :disabled="selectedPlatforms.length === 0"
             @click="publish"

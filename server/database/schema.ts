@@ -2,10 +2,20 @@ import { sqliteTable, text, integer, real } from 'drizzle-orm/sqlite-core'
 
 // ========== 核心表 ==========
 
+// 作者表
+export const authors = sqliteTable('authors', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull().unique(),
+  isActive: integer('is_active', { mode: 'boolean' }).default(true),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+})
+
 // 音檔/Podcast 記錄
 export const podcasts = sqliteTable('podcasts', {
   id: text('id').primaryKey(),
   title: text('title').notNull(),
+  authorId: text('author_id').references(() => authors.id, { onDelete: 'set null' }),
   sourceType: text('source_type').notNull(), // 'upload' | 'youtube'
   sourceUrl: text('source_url'),
   audioFileUrl: text('audio_file_url'), // Vercel Blob URL
@@ -26,6 +36,10 @@ export const generations = sqliteTable('generations', {
 
   // AI 生成內容
   originalContent: text('original_content').notNull(),
+
+  // 批次資訊（多切角生成）
+  batchIndex: integer('batch_index').notNull().default(0),
+  angleCategory: text('angle_category'), // 使用的切角類別
 
   // Prompt 版本追蹤
   promptVersionId: text('prompt_version_id').references(() => promptVersions.id),
@@ -175,6 +189,9 @@ export const publishRecords = sqliteTable('publish_records', {
 })
 
 // ========== 型別匯出 ==========
+
+export type Author = typeof authors.$inferSelect
+export type NewAuthor = typeof authors.$inferInsert
 
 export type Podcast = typeof podcasts.$inferSelect
 export type NewPodcast = typeof podcasts.$inferInsert

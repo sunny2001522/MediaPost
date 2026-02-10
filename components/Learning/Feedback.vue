@@ -37,17 +37,17 @@ watch(isVisible, (visible) => {
   >
     <div
       v-if="isVisible"
-      class="fixed bottom-6 right-6 bg-purple-600 text-white rounded-xl shadow-lg p-4 max-w-sm"
+      class="fixed bottom-6 right-6 bg-gray-900 text-white rounded-xl shadow-lg p-4 max-w-sm"
     >
       <div class="flex items-start gap-3">
         <div class="flex-shrink-0">
-          <div class="w-10 h-10 bg-purple-500 rounded-full flex items-center justify-center">
+          <div class="w-10 h-10 bg-gray-700 rounded-full flex items-center justify-center">
             <UIcon name="i-heroicons-light-bulb" class="w-5 h-5" />
           </div>
         </div>
         <div class="flex-1">
           <h4 class="font-semibold mb-1">AI 正在學習你的風格</h4>
-          <p class="text-sm text-purple-200">
+          <p class="text-sm text-gray-400">
             發現了 {{ result?.patternsFound || 0 }} 個寫作模式
             <span v-if="result?.preferencesUpdated">
               ，更新了 {{ result.preferencesUpdated }} 個偏好
@@ -60,7 +60,7 @@ watch(isVisible, (visible) => {
           </div>
         </div>
         <button
-          class="flex-shrink-0 text-purple-300 hover:text-white"
+          class="flex-shrink-0 text-gray-500 hover:text-white"
           @click="emit('close')"
         >
           <UIcon name="i-heroicons-x-mark" class="w-5 h-5" />

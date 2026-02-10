@@ -1,13 +1,15 @@
 <script setup lang="ts">
 interface Props {
-  modelValue: string
+  modelValue?: string
   original?: string | null
   learningResult?: any
   isSaving?: boolean
   editId?: string
 }
 
-const props = defineProps<Props>()
+const props = withDefaults(defineProps<Props>(), {
+  modelValue: ''
+})
 const emit = defineEmits<{
   'update:modelValue': [value: string]
   save: []
@@ -39,19 +41,19 @@ const isPublishModalOpen = ref(false)
 </script>
 
 <template>
-  <div class="bg-white rounded-xl border shadow-sm flex flex-col overflow-hidden">
+  <div class="bg-white rounded-xl border border-gray-200 shadow-sm flex flex-col overflow-hidden">
     <!-- 標題 -->
-    <div class="px-4 py-3 border-b bg-green-50 flex items-center justify-between">
-      <h3 class="font-medium text-green-700 flex items-center gap-2">
-        <UIcon name="i-heroicons-pencil-square" class="w-4 h-4" />
+    <div class="px-4 py-3 border-b border-gray-100 bg-white flex items-center justify-between">
+      <h3 class="font-medium text-gray-900 flex items-center gap-2">
+        <UIcon name="i-heroicons-pencil-square" class="w-4 h-4 text-gray-500" />
         編輯貼文
-        <UBadge v-if="hasChanges" color="yellow" size="xs">已修改</UBadge>
+        <UBadge v-if="hasChanges" color="gray" size="xs" variant="subtle">已修改</UBadge>
       </h3>
       <span class="text-xs text-gray-500">{{ charCount }} 字</span>
     </div>
 
     <!-- 編輯區 -->
-    <div class="flex-1 flex flex-col overflow-hidden">
+    <div class="flex-1 flex flex-col overflow-hidden bg-white">
       <UTextarea
         v-model="content"
         :disabled="!original"
@@ -66,18 +68,18 @@ const isPublishModalOpen = ref(false)
     </div>
 
     <!-- 學習洞察（如果有修改） -->
-    <div v-if="learningResult?.learned" class="px-4 py-3 bg-purple-50 border-t">
-      <div class="flex items-center gap-2 text-purple-700 text-sm">
+    <div v-if="learningResult?.learned" class="px-4 py-3 bg-gray-50 border-t border-gray-100">
+      <div class="flex items-center gap-2 text-gray-700 text-sm">
         <UIcon name="i-heroicons-light-bulb" class="w-4 h-4" />
         <span>AI 學到了 {{ learningResult.patternsFound }} 個新模式</span>
-        <UBadge v-if="learningResult.promptUpdated" color="purple" size="xs">
+        <UBadge v-if="learningResult.promptUpdated" color="gray" size="xs">
           Prompt 已更新
         </UBadge>
       </div>
     </div>
 
     <!-- 操作按鈕 -->
-    <div class="px-4 py-3 border-t bg-gray-50 flex items-center justify-between">
+    <div class="px-4 py-3 border-t border-gray-100 bg-gray-50 flex items-center justify-between">
       <div class="flex items-center gap-2">
         <UButton
           icon="i-heroicons-clipboard-document"
@@ -92,7 +94,7 @@ const isPublishModalOpen = ref(false)
         <UButton
           icon="i-heroicons-paper-airplane"
           size="sm"
-          color="primary"
+          color="gray"
           variant="outline"
           :disabled="!content"
           @click="isPublishModalOpen = true"
@@ -104,7 +106,7 @@ const isPublishModalOpen = ref(false)
         v-if="hasChanges"
         icon="i-heroicons-check"
         size="sm"
-        color="green"
+        color="black"
         :loading="isSaving"
         @click="emit('save')"
       >
@@ -113,7 +115,7 @@ const isPublishModalOpen = ref(false)
     </div>
 
     <!-- 發布 Modal -->
-    <PublishPublishModal
+    <PublishModal
       v-model="isPublishModalOpen"
       :content="content"
       :edit-id="editId"

@@ -1,13 +1,19 @@
 <script setup lang="ts">
+import type { Author } from '~/server/database/schema'
+
 const isOpen = defineModel<boolean>({ default: false })
 
 const sourceType = ref<'upload' | 'youtube'>('youtube')
 const youtubeUrl = ref('')
 const title = ref('')
+const selectedAuthorId = ref<string | null>(null)
 const file = ref<File | null>(null)
 const isSubmitting = ref(false)
 
 const fileInput = ref<HTMLInputElement>()
+
+// 獲取作者列表
+const { data: authors } = await useFetch<Author[]>('/api/authors')
 
 function handleFileChange(e: Event) {
   const target = e.target as HTMLInputElement
@@ -50,6 +56,7 @@ async function submit() {
       method: 'POST',
       body: {
         title: title.value || (sourceType.value === 'youtube' ? 'YouTube Podcast' : file.value?.name),
+        authorId: selectedAuthorId.value,
         sourceType: sourceType.value,
         sourceUrl: sourceType.value === 'youtube' ? youtubeUrl.value : undefined,
         audioFileUrl: audioFileUrl || undefined
@@ -59,6 +66,7 @@ async function submit() {
     // 重置表單
     youtubeUrl.value = ''
     title.value = ''
+    selectedAuthorId.value = null
     file.value = null
     isOpen.value = false
 
@@ -84,21 +92,39 @@ async function submit() {
 
 <template>
   <UModal v-model="isOpen">
-    <UCard>
+    <UCard :ui="{ ring: 'ring-1 ring-gray-200', divide: 'divide-y divide-gray-100' }">
       <template #header>
         <div class="flex items-center gap-2">
-          <UIcon name="i-heroicons-plus-circle" class="w-5 h-5 text-primary-500" />
-          <span class="font-semibold">新增音檔</span>
+          <UIcon name="i-heroicons-plus-circle" class="w-5 h-5 text-gray-600" />
+          <span class="font-semibold text-gray-900">新增音檔</span>
         </div>
       </template>
 
       <div class="space-y-4">
+        <!-- 作者選擇 -->
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-2">選擇作者</label>
+          <USelectMenu
+            v-model="selectedAuthorId"
+            :options="authors || []"
+            value-attribute="id"
+            option-attribute="name"
+            placeholder="選擇作者..."
+            searchable
+            searchable-placeholder="搜尋作者..."
+          >
+            <template #leading>
+              <UIcon name="i-heroicons-user" class="w-4 h-4 text-gray-400" />
+            </template>
+          </USelectMenu>
+        </div>
+
         <!-- 來源類型選擇 -->
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-2">來源類型</label>
           <div class="flex gap-2">
             <UButton
-              :color="sourceType === 'youtube' ? 'primary' : 'gray'"
+              :color="sourceType === 'youtube' ? 'black' : 'gray'"
               :variant="sourceType === 'youtube' ? 'solid' : 'outline'"
               icon="i-heroicons-play-circle"
               @click="sourceType = 'youtube'"
@@ -106,7 +132,7 @@ async function submit() {
               YouTube
             </UButton>
             <UButton
-              :color="sourceType === 'upload' ? 'primary' : 'gray'"
+              :color="sourceType === 'upload' ? 'black' : 'gray'"
               :variant="sourceType === 'upload' ? 'solid' : 'outline'"
               icon="i-heroicons-arrow-up-tray"
               @click="sourceType = 'upload'"
@@ -130,8 +156,8 @@ async function submit() {
         <div v-if="sourceType === 'upload'">
           <label class="block text-sm font-medium text-gray-700 mb-2">選擇音檔</label>
           <div
-            class="border-2 border-dashed rounded-lg p-6 text-center cursor-pointer hover:border-primary-400 transition-colors"
-            :class="file ? 'border-green-400 bg-green-50' : 'border-gray-300'"
+            class="border-2 border-dashed rounded-lg p-6 text-center cursor-pointer hover:border-gray-400 transition-colors"
+            :class="file ? 'border-gray-900 bg-gray-50' : 'border-gray-300'"
             @click="fileInput?.click()"
           >
             <input
@@ -144,9 +170,9 @@ async function submit() {
             <UIcon
               :name="file ? 'i-heroicons-check-circle' : 'i-heroicons-arrow-up-tray'"
               class="w-8 h-8 mx-auto mb-2"
-              :class="file ? 'text-green-500' : 'text-gray-400'"
+              :class="file ? 'text-gray-900' : 'text-gray-400'"
             />
-            <p v-if="file" class="text-sm text-green-600">{{ file.name }}</p>
+            <p v-if="file" class="text-sm text-gray-900">{{ file.name }}</p>
             <p v-else class="text-sm text-gray-500">點擊選擇 MP3、WAV 等音檔</p>
           </div>
         </div>
@@ -168,7 +194,7 @@ async function submit() {
             取消
           </UButton>
           <UButton
-            color="primary"
+            color="black"
             :loading="isSubmitting"
             @click="submit"
           >
@@ -183,7 +209,7 @@ async function submit() {
   <UButton
     v-if="!$attrs.modelValue"
     icon="i-heroicons-plus"
-    color="primary"
+    color="black"
     @click="isOpen = true"
   >
     新增音檔

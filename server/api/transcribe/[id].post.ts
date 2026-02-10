@@ -9,6 +9,8 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, message: 'Missing podcast ID' })
   }
 
+  console.log('[Transcribe] Starting for podcast:', id)
+
   const db = useDB()
 
   // 獲取 podcast
@@ -29,12 +31,20 @@ export default defineEventHandler(async (event) => {
   try {
     let transcript: string
 
+    console.log('[Transcribe] Podcast data:', {
+      sourceType: podcast.sourceType,
+      sourceUrl: podcast.sourceUrl,
+      audioFileUrl: podcast.audioFileUrl
+    })
+
     if (podcast.sourceType === 'youtube' && podcast.sourceUrl) {
       // YouTube：使用 Replicate Whisper
+      console.log('[Transcribe] Using Replicate for YouTube:', podcast.sourceUrl)
       const result = await processYouTubeVideo(podcast.sourceUrl)
       transcript = result.transcript
     } else if (podcast.audioFileUrl) {
       // 上傳的音檔：使用 OpenAI Whisper
+      console.log('[Transcribe] Using OpenAI Whisper for audio:', podcast.audioFileUrl)
       transcript = await transcribeAudio(podcast.audioFileUrl)
     } else {
       throw new Error('No audio source available')
@@ -51,6 +61,8 @@ export default defineEventHandler(async (event) => {
 
     return { success: true, transcript }
   } catch (error: any) {
+    console.error('[Transcribe] Error:', error)
+
     // 更新錯誤狀態
     await db.update(schema.podcasts)
       .set({

@@ -1,7 +1,7 @@
 import { nanoid } from 'nanoid'
 import { eq, desc } from 'drizzle-orm'
 import { useDB, schema } from '~/server/database/client'
-import { generatePost } from '~/server/services/openai'
+import { generatePost, POST_ANGLES, type AngleId } from '~/server/services/openai'
 import { learningEngine } from '~/server/services/learning/LearningEngine'
 
 export default defineEventHandler(async (event) => {
@@ -12,18 +12,45 @@ export default defineEventHandler(async (event) => {
 
   const db = useDB()
 
-  // 獲取 podcast
-  const [podcast] = await db
-    .select()
+  // 獲取 podcast（使用 JOIN 取得作者）
+  const [result] = await db
+    .select({
+      podcast: schema.podcasts,
+      authorName: schema.authors.name,
+    })
     .from(schema.podcasts)
+    .leftJoin(schema.authors, eq(schema.podcasts.authorId, schema.authors.id))
     .where(eq(schema.podcasts.id, id))
+    .limit(1)
 
-  if (!podcast) {
+  if (!result) {
     throw createError({ statusCode: 404, message: 'Podcast not found' })
   }
 
+  const { podcast, authorName } = result
+
   if (!podcast.transcript) {
     throw createError({ statusCode: 400, message: 'Podcast not transcribed yet' })
+  }
+
+  // 檢查現有的 generations，取得已使用的視角
+  const existingGenerations = await db
+    .select()
+    .from(schema.generations)
+    .where(eq(schema.generations.podcastId, id))
+
+  const usedAngles = existingGenerations
+    .map(g => g.angleCategory)
+    .filter(Boolean) as AngleId[]
+
+  // 計算還有多少視角可用
+  const availableAngles = POST_ANGLES.filter(a => !usedAngles.includes(a.id))
+
+  if (availableAngles.length === 0) {
+    throw createError({
+      statusCode: 400,
+      message: '所有視角都已使用完畢，無法再生成新貼文'
+    })
   }
 
   // 更新狀態為生成中
@@ -43,28 +70,47 @@ export default defineEventHandler(async (event) => {
       .orderBy(desc(schema.promptVersions.version))
       .limit(1)
 
-    // 生成貼文
-    const { content, tokenCount, generationTimeMs } = await generatePost(
+    // 決定要生成幾篇（最多 5 篇，但不超過可用視角數）
+    const postCount = Math.min(5, availableAngles.length)
+
+    // 生成貼文（排除已使用的視角）
+    const { content, tokenCount, generationTimeMs, anglesUsed } = await generatePost(
       podcast.transcript,
       podcast.title,
-      podcast.duration || undefined,
-      userPreferences || undefined
+      podcast.duration ?? undefined,
+      userPreferences || undefined,
+      authorName ?? undefined,
+      postCount,
+      usedAngles
     )
 
-    // 儲存 generation
-    const generationId = nanoid()
-    await db.insert(schema.generations).values({
-      id: generationId,
-      podcastId: id,
-      originalContent: content,
-      promptVersionId: promptVersion?.id,
-      promptSnapshot: promptVersion?.compiledPrompt,
-      model: 'gpt-4-turbo-preview',
-      temperature: 0.7,
-      tokenCount,
-      generationTimeMs,
-      createdAt: new Date()
-    })
+    // 解析生成的貼文並分別儲存
+    const posts = content.split('---POST---').map(p => p.trim()).filter(Boolean)
+    const maxBatchIndex = existingGenerations.length > 0
+      ? Math.max(...existingGenerations.map(g => g.batchIndex))
+      : -1
+
+    const generationIds: string[] = []
+
+    for (let i = 0; i < posts.length; i++) {
+      const generationId = nanoid()
+      generationIds.push(generationId)
+
+      await db.insert(schema.generations).values({
+        id: generationId,
+        podcastId: id,
+        originalContent: posts[i],
+        batchIndex: maxBatchIndex + 1 + i,
+        angleCategory: anglesUsed[i] || null,
+        promptVersionId: promptVersion?.id,
+        promptSnapshot: promptVersion?.compiledPrompt,
+        model: 'gpt-4-turbo-preview',
+        temperature: 0.7,
+        tokenCount: Math.round(tokenCount / posts.length),
+        generationTimeMs: Math.round(generationTimeMs / posts.length),
+        createdAt: new Date()
+      })
+    }
 
     // 更新 prompt 使用次數
     if (promptVersion) {
@@ -80,8 +126,11 @@ export default defineEventHandler(async (event) => {
 
     return {
       success: true,
-      generationId,
-      content,
+      generationIds,
+      postsGenerated: posts.length,
+      anglesUsed,
+      totalPosts: existingGenerations.length + posts.length,
+      remainingAngles: POST_ANGLES.length - usedAngles.length - posts.length,
       tokenCount,
       generationTimeMs
     }

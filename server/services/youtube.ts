@@ -1,4 +1,8 @@
 import Replicate from 'replicate'
+import * as OpenCC from 'opencc-js'
+
+// 簡轉繁轉換器 (台灣繁體 + 慣用詞)
+const convertToTraditional = OpenCC.Converter({ from: 'cn', to: 'twp' })
 
 let replicateClient: Replicate | null = null
 
@@ -48,8 +52,17 @@ export async function processYouTubeVideo(youtubeUrl: string): Promise<{
     }
   ) as { transcription: string }
 
+  // 簡轉繁
+  let result = convertToTraditional(output.transcription)
+  // 將所有空格轉換為換行（中文內容不需要空格分隔）
+  result = result.replace(/ +/g, '\n')
+  // 在句號、問號、驚嘆號後添加換行
+  result = result.replace(/([。？！])\s*/g, '$1\n')
+  // 合併連續換行為單個換行
+  result = result.replace(/\n+/g, '\n')
+
   return {
-    transcript: output.transcription
+    transcript: result.trim()
   }
 }
 
