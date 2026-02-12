@@ -93,6 +93,6 @@ const filteredPodcasts = computed(() => {
     </div>
 
     <!-- 新增 Modal -->
-    <ModalsNewPodcastModal v-model="isModalOpen" />
+    <ModalsNewPodcastModal v-model="isModalOpen" :default-author-id="selectedAuthorId" />
   </aside>
 </template>

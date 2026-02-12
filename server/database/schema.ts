@@ -11,6 +11,28 @@ export const authors = sqliteTable('authors', {
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 })
 
+// 作者人設表
+export const authorPersonas = sqliteTable('author_personas', {
+  id: text('id').primaryKey(),
+  authorId: text('author_id').notNull().references(() => authors.id, { onDelete: 'cascade' }),
+
+  // 基本設定
+  name: text('name').notNull(), // 人設名稱（如「預設」「活潑版」）
+  isDefault: integer('is_default', { mode: 'boolean' }).default(true),
+  isActive: integer('is_active', { mode: 'boolean' }).default(true),
+
+  // 人設內容
+  persona: text('persona'), // 主要人設描述（自由文字）
+  sloganToIgnore: text('slogan_to_ignore'), // 要忽略的 slogan
+  styleGuidelines: text('style_guidelines'), // 風格指引
+
+  // 版本控制
+  version: integer('version').notNull().default(1),
+
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+})
+
 // 音檔/Podcast 記錄
 export const podcasts = sqliteTable('podcasts', {
   id: text('id').primaryKey(),
@@ -21,6 +43,7 @@ export const podcasts = sqliteTable('podcasts', {
   audioFileUrl: text('audio_file_url'), // Vercel Blob URL
   transcript: text('transcript'),
   transcriptSegments: text('transcript_segments'), // JSON: 時間戳記
+  youtubeDescription: text('youtube_description'), // YouTube 影片描述（行銷摘要）
   duration: integer('duration'), // 秒
   status: text('status').notNull().default('pending'),
   // 'pending' | 'downloading' | 'transcribing' | 'generating' | 'completed' | 'error'
@@ -192,6 +215,9 @@ export const publishRecords = sqliteTable('publish_records', {
 
 export type Author = typeof authors.$inferSelect
 export type NewAuthor = typeof authors.$inferInsert
+
+export type AuthorPersona = typeof authorPersonas.$inferSelect
+export type NewAuthorPersona = typeof authorPersonas.$inferInsert
 
 export type Podcast = typeof podcasts.$inferSelect
 export type NewPodcast = typeof podcasts.$inferInsert

@@ -16,6 +16,7 @@ export default defineEventHandler(async (event) => {
   const [result] = await db
     .select({
       podcast: schema.podcasts,
+      authorId: schema.authors.id,
       authorName: schema.authors.name,
     })
     .from(schema.podcasts)
@@ -27,7 +28,7 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 404, message: 'Podcast not found' })
   }
 
-  const { podcast, authorName } = result
+  const { podcast, authorId, authorName } = result
 
   if (!podcast.transcript) {
     throw createError({ statusCode: 400, message: 'Podcast not transcribed yet' })
@@ -73,7 +74,7 @@ export default defineEventHandler(async (event) => {
     // 決定要生成幾篇（最多 5 篇，但不超過可用視角數）
     const postCount = Math.min(5, availableAngles.length)
 
-    // 生成貼文（排除已使用的視角）
+    // 生成貼文（排除已使用的視角，傳入 YouTube 描述和作者 ID）
     const { content, tokenCount, generationTimeMs, anglesUsed } = await generatePost(
       podcast.transcript,
       podcast.title,
@@ -81,7 +82,9 @@ export default defineEventHandler(async (event) => {
       userPreferences || undefined,
       authorName ?? undefined,
       postCount,
-      usedAngles
+      usedAngles,
+      podcast.youtubeDescription,
+      authorId ?? undefined
     )
 
     // 解析生成的貼文並分別儲存

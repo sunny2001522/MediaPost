@@ -2,7 +2,7 @@ import { nanoid } from 'nanoid'
 import { eq } from 'drizzle-orm'
 import { useDB, schema } from '~/server/database/client'
 import { transcribeAudio, generatePost } from '~/server/services/openai'
-import { processYouTubeVideo } from '~/server/services/youtube'
+import { processYouTubeVideo, getYouTubeVideoInfo, extractMarketingSummary } from '~/server/services/youtube'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody(event)
@@ -26,7 +26,9 @@ export default defineEventHandler(async (event) => {
   await db.insert(schema.podcasts).values(podcast)
 
   // 自動開始轉錄和生成貼文（非阻塞）
-  startProcessing(id, podcast.sourceType, podcast.sourceUrl, podcast.audioFileUrl, podcast.title)
+  // 如果有手動輸入的描述，優先使用
+  const manualDescription = body.manualDescription || null
+  startProcessing(id, podcast.sourceType, podcast.sourceUrl, podcast.audioFileUrl, podcast.title, podcast.authorId, manualDescription)
 
   return podcast
 })
@@ -37,7 +39,9 @@ async function startProcessing(
   sourceType: string,
   sourceUrl: string | null,
   audioFileUrl: string | null,
-  title: string
+  title: string,
+  authorId: string | null,
+  manualDescription: string | null
 ) {
   const db = useDB()
 
@@ -49,7 +53,39 @@ async function startProcessing(
 
     console.log('[Auto Process] Starting transcription for:', id)
 
-    // 2. 轉錄
+    // 2. 處理 YouTube 描述（手動輸入優先，否則自動抓取）
+    let youtubeDescription: string | null = null
+
+    if (manualDescription) {
+      // 優先使用手動輸入的描述
+      youtubeDescription = manualDescription
+      console.log('[Auto Process] Using manual description, length:', youtubeDescription.length)
+    } else if (sourceType === 'youtube' && sourceUrl) {
+      // 自動從 YouTube API 抓取
+      let authorName: string | undefined
+      if (authorId) {
+        const author = await db.query.authors.findFirst({
+          where: eq(schema.authors.id, authorId)
+        })
+        authorName = author?.name
+      }
+
+      const videoInfo = await getYouTubeVideoInfo(sourceUrl)
+      if (videoInfo) {
+        // 根據作者名稱套用不同的清理規則
+        youtubeDescription = extractMarketingSummary(videoInfo.description, authorName)
+        console.log('[Auto Process] YouTube description fetched, length:', youtubeDescription?.length || 0)
+      }
+    }
+
+    // 保存描述到資料庫
+    if (youtubeDescription) {
+      await db.update(schema.podcasts)
+        .set({ youtubeDescription })
+        .where(eq(schema.podcasts.id, id))
+    }
+
+    // 3. 轉錄
     let transcript: string
 
     if (sourceType === 'youtube' && sourceUrl) {
@@ -61,7 +97,7 @@ async function startProcessing(
       throw new Error('No audio source available')
     }
 
-    // 3. 保存轉錄結果
+    // 4. 保存轉錄結果
     await db.update(schema.podcasts)
       .set({
         transcript,
@@ -72,13 +108,19 @@ async function startProcessing(
 
     console.log('[Auto Process] Transcription done, generating posts for:', id)
 
-    // 4. 生成貼文
+    // 5. 生成貼文（傳入 YouTube 描述）
     const { content, tokenCount, generationTimeMs } = await generatePost(
       transcript,
-      title
+      title,
+      undefined,           // duration
+      undefined,           // userPreferences
+      undefined,           // authorName
+      5,                   // postCount
+      [],                  // excludeAngles
+      youtubeDescription   // youtubeDescription
     )
 
-    // 5. 保存生成結果
+    // 6. 保存生成結果
     const generationId = nanoid()
     await db.insert(schema.generations).values({
       id: generationId,
@@ -91,7 +133,7 @@ async function startProcessing(
       createdAt: new Date()
     })
 
-    // 6. 更新狀態為完成
+    // 7. 更新狀態為完成
     await db.update(schema.podcasts)
       .set({ status: 'completed', updatedAt: new Date() })
       .where(eq(schema.podcasts.id, id))

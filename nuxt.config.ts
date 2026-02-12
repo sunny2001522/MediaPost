@@ -19,6 +19,9 @@ export default defineNuxtConfig({
     // Replicate
     replicateApiToken: process.env.REPLICATE_API_TOKEN,
 
+    // YouTube Data API
+    youtubeApiKey: process.env.YOUTUBE_API_KEY,
+
     // Vercel Blob
     blobReadWriteToken: process.env.BLOB_READ_WRITE_TOKEN,
 

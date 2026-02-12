@@ -1,13 +1,16 @@
 <script setup lang="ts">
-import type { Podcast, Generation, Edit } from '~/server/database/schema'
+import type { Podcast, Generation, Edit, Author } from '~/server/database/schema'
 
 const route = useRoute()
 const podcastId = computed(() => route.params.id as string)
 
-// 獲取當前 podcast 資料
-const { data: podcast, refresh: refreshPodcast } = await useFetch<Podcast>(
+// 獲取當前 podcast 資料（包含作者資訊）
+const { data: podcast, refresh: refreshPodcast } = await useFetch<Podcast & { author?: Author | null }>(
   () => `/api/podcasts/${podcastId.value}`
 )
+
+// 人設 Modal 狀態
+const showPersonaModal = ref(false)
 
 // 獲取所有 podcasts（側欄用）
 const { data: podcasts, refresh: refreshPodcasts } = await useFetch('/api/podcasts')
@@ -205,15 +208,29 @@ async function handlePodcastDeleted(id: string) {
             {{ getStatusText(podcast.status) }}
           </UBadge>
         </div>
-        <div class="flex items-center gap-2 text-sm text-gray-500">
-          <template v-if="isTranscribing">
-            <UIcon name="i-heroicons-arrow-path" class="w-4 h-4 animate-spin" />
-            轉錄中...
-          </template>
-          <template v-else-if="isGenerating">
-            <UIcon name="i-heroicons-sparkles" class="w-4 h-4 animate-pulse" />
-            生成貼文中...
-          </template>
+        <div class="flex items-center gap-2">
+          <!-- 編輯人設按鈕 -->
+          <UButton
+            v-if="podcast?.author"
+            variant="ghost"
+            color="gray"
+            size="sm"
+            icon="i-heroicons-user-circle"
+            @click="showPersonaModal = true"
+          >
+            編輯「{{ podcast.author.name }}」人格
+          </UButton>
+          <!-- 狀態指示器 -->
+          <div class="flex items-center gap-2 text-sm text-gray-500">
+            <template v-if="isTranscribing">
+              <UIcon name="i-heroicons-arrow-path" class="w-4 h-4 animate-spin" />
+              轉錄中...
+            </template>
+            <template v-else-if="isGenerating">
+              <UIcon name="i-heroicons-sparkles" class="w-4 h-4 animate-pulse" />
+              生成貼文中...
+            </template>
+          </div>
         </div>
       </header>
 
@@ -251,5 +268,13 @@ async function handlePodcastDeleted(id: string) {
 
     <!-- 學習反饋 Toast -->
     <LearningFeedback :result="learningResult" @close="learningResult = null" />
+
+    <!-- 人設編輯 Modal -->
+    <ModalsAuthorPersonaModal
+      v-if="podcast?.author"
+      v-model="showPersonaModal"
+      :author-id="podcast.author.id"
+      :author-name="podcast.author.name"
+    />
   </div>
 </template>

@@ -1,5 +1,9 @@
 import OpenAI from 'openai'
 import * as OpenCC from 'opencc-js'
+import { eq, and } from 'drizzle-orm'
+import { useDB } from '~/server/database/client'
+import * as schema from '~/server/database/schema'
+import type { AuthorPersona } from '~/server/database/schema'
 
 // 簡轉繁轉換器 (台灣繁體 + 慣用詞)
 const convertToTraditional = OpenCC.Converter({ from: 'cn', to: 'twp' })
@@ -16,19 +20,26 @@ function getOpenAI(): OpenAI {
   return openaiClient
 }
 
-// ========== 作者專屬設定 ==========
+// ========== 作者人設查詢 ==========
 
-// 作者專屬 Prompt 設定
-export const AUTHOR_PROMPTS: Record<string, {
-  name: string
-  slogan?: string  // 要忽略的 slogan
-  style?: string   // 額外的風格指引
-}> = {
-  '老簡講股': {
-    name: '老簡講股',
-    slogan: '「歡迎收看老簡講股」「先讚後看 腰纏萬貫」是開場 slogan，不是內容，請完全忽略',
-    style: '專注於 Podcast 中的實質投資觀點、市場分析、個股解讀',
-  },
+// 從資料庫取得作者的預設人設
+export async function getAuthorPersona(authorId: string | undefined | null): Promise<AuthorPersona | null> {
+  if (!authorId) return null
+
+  const db = useDB()
+  const [persona] = await db
+    .select()
+    .from(schema.authorPersonas)
+    .where(
+      and(
+        eq(schema.authorPersonas.authorId, authorId),
+        eq(schema.authorPersonas.isDefault, true),
+        eq(schema.authorPersonas.isActive, true)
+      )
+    )
+    .limit(1)
+
+  return persona || null
 }
 
 // ========== 基礎 Prompt ==========
@@ -162,14 +173,13 @@ function buildPrompt(options: {
   transcript: string
   duration?: number
   authorName?: string
+  authorPersona?: AuthorPersona | null
   userPreferences?: string
   postCount?: number
   excludeAngles?: AngleId[]
+  youtubeDescription?: string | null
 }): string {
-  const { title, transcript, duration, authorName, userPreferences, postCount = 5, excludeAngles = [] } = options
-
-  // 取得作者專屬設定
-  const authorConfig = authorName ? AUTHOR_PROMPTS[authorName] : null
+  const { title, transcript, duration, authorName, authorPersona, userPreferences, postCount = 5, excludeAngles = [], youtubeDescription } = options
 
   // 過濾出可用的視角
   const availableAngles = POST_ANGLES.filter(a => !excludeAngles.includes(a.id))
@@ -177,14 +187,22 @@ function buildPrompt(options: {
 
   let prompt = BASE_PROMPT
 
-  // 加入作者專屬規則
-  if (authorConfig) {
-    prompt += `\n\n## 作者專屬規則（${authorConfig.name}）`
-    if (authorConfig.slogan) {
-      prompt += `\n- ${authorConfig.slogan}`
+  // 加入作者人設（從資料庫取得）
+  if (authorPersona) {
+    const personaParts: string[] = []
+
+    if (authorPersona.persona) {
+      personaParts.push(authorPersona.persona)
     }
-    if (authorConfig.style) {
-      prompt += `\n- ${authorConfig.style}`
+    if (authorPersona.sloganToIgnore) {
+      personaParts.push(`請忽略以下開場白/slogan：${authorPersona.sloganToIgnore}`)
+    }
+    if (authorPersona.styleGuidelines) {
+      personaParts.push(`風格指引：${authorPersona.styleGuidelines}`)
+    }
+
+    if (personaParts.length > 0) {
+      prompt += `\n\n## 作者人設（${authorName || '未知作者'}）\n${personaParts.join('\n')}`
     }
   }
 
@@ -205,6 +223,18 @@ function buildPrompt(options: {
     prompt += `\n\n## 用戶偏好風格\n${userPreferences}`
   }
 
+  // 如果有 YouTube 描述，加入特殊指示
+  if (youtubeDescription) {
+    prompt += `\n\n## 重要：貼文開頭內容（必須原封不動使用）
+以下是行銷團隊編寫的摘要，請將此內容完整放在每篇貼文的最前面，不要修改任何文字：
+
+---開頭內容開始---
+${youtubeDescription}
+---開頭內容結束---
+
+在這段內容之後，再接續你生成的正文內容。正文不需要重複摘要中已經提到的重點。`
+  }
+
   // 多篇貼文指示
   prompt += `\n\n## 生成要求
 請生成 ${postCount} 篇完整的貼文，每篇 700-800 字。
@@ -219,23 +249,28 @@ ${anglesToUse.map((a, i) => `${i + 1}. 【${a.name}】${a.description}`).join('\
 }
 
 export async function transcribeAudio(audioUrl: string): Promise<string> {
-  const openai = getOpenAI()
+  // 使用 Replicate Whisper（無大小限制，成本更低）
+  const config = useRuntimeConfig()
+  const Replicate = (await import('replicate')).default
+  const replicate = new Replicate({ auth: config.replicateApiToken })
 
-  // 下載音檔
-  const response = await fetch(audioUrl)
-  const audioBuffer = await response.arrayBuffer()
-  const audioBlob = new Blob([audioBuffer], { type: 'audio/mpeg' })
-  const audioFile = new File([audioBlob], 'audio.mp3', { type: 'audio/mpeg' })
+  console.log('[Transcribe] Using Replicate Whisper for:', audioUrl)
 
-  const transcription = await openai.audio.transcriptions.create({
-    file: audioFile,
-    model: 'whisper-1',
-    language: 'zh',
-    response_format: 'text'
-  })
+  const output = await replicate.run(
+    'openai/whisper:4d50797290df275329f202e48c76360b3f22b08d28c196cbc54600319435f8d2',
+    {
+      input: {
+        audio: audioUrl,
+        model: 'large-v3',
+        language: 'zh',
+        translate: false,
+        transcription: 'plain text',
+      },
+    }
+  ) as { transcription: string }
 
   // 簡轉繁
-  let result = convertToTraditional(transcription as string)
+  let result = convertToTraditional(output.transcription)
   // 將所有空格轉換為換行（中文內容不需要空格分隔）
   result = result.replace(/ +/g, '\n')
   // 在句號、問號、驚嘆號後添加換行
@@ -253,10 +288,15 @@ export async function generatePost(
   userPreferences?: string,
   authorName?: string,
   postCount: number = 5,
-  excludeAngles: AngleId[] = []
+  excludeAngles: AngleId[] = [],
+  youtubeDescription?: string | null,
+  authorId?: string | null
 ): Promise<{ content: string; tokenCount: number; generationTimeMs: number; anglesUsed: AngleId[] }> {
   const openai = getOpenAI()
   const startTime = Date.now()
+
+  // 從資料庫取得作者人設
+  const authorPersona = await getAuthorPersona(authorId)
 
   // 計算實際可用的視角
   const availableAngles = POST_ANGLES.filter(a => !excludeAngles.includes(a.id))
@@ -268,9 +308,11 @@ export async function generatePost(
     transcript,
     duration,
     authorName,
+    authorPersona,
     userPreferences,
     postCount: anglesToUse.length,
     excludeAngles,
+    youtubeDescription,
   })
 
   const completion = await openai.chat.completions.create({

@@ -9,14 +9,22 @@ export default defineEventHandler(async (event) => {
 
   const db = useDB()
 
-  const [podcast] = await db
-    .select()
+  // 使用 LEFT JOIN 取得作者資訊
+  const [result] = await db
+    .select({
+      podcast: schema.podcasts,
+      author: schema.authors,
+    })
     .from(schema.podcasts)
+    .leftJoin(schema.authors, eq(schema.podcasts.authorId, schema.authors.id))
     .where(eq(schema.podcasts.id, id))
 
-  if (!podcast) {
+  if (!result) {
     throw createError({ statusCode: 404, message: 'Podcast not found' })
   }
 
-  return podcast
+  return {
+    ...result.podcast,
+    author: result.author,
+  }
 })
