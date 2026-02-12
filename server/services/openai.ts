@@ -248,39 +248,6 @@ ${anglesToUse.map((a, i) => `${i + 1}. 【${a.name}】${a.description}`).join('\
   return prompt
 }
 
-export async function transcribeAudio(audioUrl: string): Promise<string> {
-  // 使用 Replicate Whisper（無大小限制，成本更低）
-  const config = useRuntimeConfig()
-  const Replicate = (await import('replicate')).default
-  const replicate = new Replicate({ auth: config.replicateApiToken })
-
-  console.log('[Transcribe] Using Replicate Whisper for:', audioUrl)
-
-  const output = await replicate.run(
-    'openai/whisper:4d50797290df275329f202e48c76360b3f22b08d28c196cbc54600319435f8d2',
-    {
-      input: {
-        audio: audioUrl,
-        model: 'large-v3',
-        language: 'zh',
-        translate: false,
-        transcription: 'plain text',
-      },
-    }
-  ) as { transcription: string }
-
-  // 簡轉繁
-  let result = convertToTraditional(output.transcription)
-  // 將所有空格轉換為換行（中文內容不需要空格分隔）
-  result = result.replace(/ +/g, '\n')
-  // 在句號、問號、驚嘆號後添加換行
-  result = result.replace(/([。？！])\s*/g, '$1\n')
-  // 合併連續換行為單個換行
-  result = result.replace(/\n+/g, '\n')
-
-  return result.trim()
-}
-
 export async function generatePost(
   transcript: string,
   title: string,

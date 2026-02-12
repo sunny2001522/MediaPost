@@ -16,9 +16,6 @@ export default defineNuxtConfig({
     // OpenAI
     openaiApiKey: process.env.OPENAI_API_KEY,
 
-    // Replicate
-    replicateApiToken: process.env.REPLICATE_API_TOKEN,
-
     // YouTube Data API
     youtubeApiKey: process.env.YOUTUBE_API_KEY,
 

@@ -1,8 +1,9 @@
 import { nanoid } from 'nanoid'
 import { eq } from 'drizzle-orm'
 import { useDB, schema } from '~/server/database/client'
-import { transcribeAudio, generatePost } from '~/server/services/openai'
-import { processYouTubeVideo, getYouTubeVideoInfo, extractMarketingSummary } from '~/server/services/youtube'
+import { generatePost } from '~/server/services/openai'
+import { getYouTubeVideoInfo, extractMarketingSummary } from '~/server/services/youtube'
+import { transcribeFromUrl, transcribeYouTube } from '~/server/services/audio'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody(event)
@@ -89,10 +90,11 @@ async function startProcessing(
     let transcript: string
 
     if (sourceType === 'youtube' && sourceUrl) {
-      const result = await processYouTubeVideo(sourceUrl)
+      const result = await transcribeYouTube(sourceUrl)
       transcript = result.transcript
     } else if (audioFileUrl) {
-      transcript = await transcribeAudio(audioFileUrl)
+      const result = await transcribeFromUrl(audioFileUrl)
+      transcript = result.transcript
     } else {
       throw new Error('No audio source available')
     }

@@ -1,7 +1,6 @@
 import { eq } from 'drizzle-orm'
 import { useDB, schema } from '~/server/database/client'
-import { transcribeAudio } from '~/server/services/openai'
-import { processYouTubeVideo } from '~/server/services/youtube'
+import { transcribeFromUrl, transcribeYouTube } from '~/server/services/audio'
 
 export default defineEventHandler(async (event) => {
   const id = getRouterParam(event, 'id')
@@ -38,14 +37,15 @@ export default defineEventHandler(async (event) => {
     })
 
     if (podcast.sourceType === 'youtube' && podcast.sourceUrl) {
-      // YouTube：使用 Replicate Whisper
-      console.log('[Transcribe] Using Replicate for YouTube:', podcast.sourceUrl)
-      const result = await processYouTubeVideo(podcast.sourceUrl)
+      // YouTube：使用 OpenAI Whisper (透過 cobalt.tools 下載)
+      console.log('[Transcribe] Using OpenAI Whisper for YouTube:', podcast.sourceUrl)
+      const result = await transcribeYouTube(podcast.sourceUrl)
       transcript = result.transcript
     } else if (podcast.audioFileUrl) {
       // 上傳的音檔：使用 OpenAI Whisper
       console.log('[Transcribe] Using OpenAI Whisper for audio:', podcast.audioFileUrl)
-      transcript = await transcribeAudio(podcast.audioFileUrl)
+      const result = await transcribeFromUrl(podcast.audioFileUrl)
+      transcript = result.transcript
     } else {
       throw new Error('No audio source available')
     }
