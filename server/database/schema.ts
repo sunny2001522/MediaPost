@@ -7,6 +7,9 @@ export const authors = sqliteTable('authors', {
   id: text('id').primaryKey(),
   name: text('name').notNull().unique(),
   isActive: integer('is_active', { mode: 'boolean' }).default(true),
+  // CMoney 整合
+  cmoneyPodcastTrackId: text('cmoney_podcast_track_id'), // CMoney Podcast TrackId
+  cmoneyYoutubeChannelId: text('cmoney_youtube_channel_id'), // CMoney YouTube 頻道 ID
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 })
@@ -178,6 +181,93 @@ export const learningEvents = sqliteTable('learning_events', {
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 })
 
+// ========== CMoney Podcast 監控表 ==========
+
+// CMoney Podcast 集數記錄（用於去重）
+export const cmoneyPodcastEpisodes = sqliteTable('cmoney_podcast_episodes', {
+  id: text('id').primaryKey(),
+
+  // CMoney 原始資料
+  audioUrl: text('audio_url').notNull().unique(), // 去重關鍵
+  pubDate: text('pub_date').notNull(), // ISO 格式日期字串，用於分頁
+  trackId: text('track_id').notNull(), // 所屬的 TrackId
+  title: text('title'), // 標題（如果 API 有提供）
+
+  // 處理狀態
+  processStatus: text('process_status').notNull().default('pending'),
+  // 'pending' | 'processing' | 'completed' | 'failed' | 'skipped'
+  podcastId: text('podcast_id').references(() => podcasts.id, { onDelete: 'set null' }),
+
+  // 發現來源
+  discoverySource: text('discovery_source').notNull(),
+  // 'cron' | 'manual'
+
+  // 錯誤追蹤
+  errorMessage: text('error_message'),
+  retryCount: integer('retry_count').default(0),
+
+  discoveredAt: integer('discovered_at', { mode: 'timestamp' }).notNull(),
+  processedAt: integer('processed_at', { mode: 'timestamp' }),
+})
+
+// ========== YouTube 頻道監控表 ==========
+
+// YouTube 頻道訂閱
+export const youtubeChannels = sqliteTable('youtube_channels', {
+  id: text('id').primaryKey(),
+  channelId: text('channel_id').notNull().unique(), // YouTube Channel ID (UC...)
+  channelTitle: text('channel_title'),
+  channelUrl: text('channel_url'),
+
+  // 關聯作者（自動處理時使用）
+  authorId: text('author_id').references(() => authors.id, { onDelete: 'set null' }),
+
+  // 訂閱狀態
+  isActive: integer('is_active', { mode: 'boolean' }).default(true),
+  webhookSecret: text('webhook_secret').notNull(), // 驗證用密鑰
+  subscriptionStatus: text('subscription_status').notNull().default('pending'),
+  // 'pending' | 'subscribed' | 'expired' | 'failed'
+  subscriptionExpiresAt: integer('subscription_expires_at', { mode: 'timestamp' }),
+  subscriptionError: text('subscription_error'),
+
+  // 輪詢備份機制
+  lastPolledAt: integer('last_polled_at', { mode: 'timestamp' }),
+  lastVideoPublishedAt: integer('last_video_published_at', { mode: 'timestamp' }),
+
+  // 統計
+  totalVideosProcessed: integer('total_videos_processed').default(0),
+
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+})
+
+// YouTube 影片記錄（用於去重）
+export const youtubeVideos = sqliteTable('youtube_videos', {
+  id: text('id').primaryKey(),
+  videoId: text('video_id').notNull().unique(), // YouTube Video ID（去重關鍵）
+  channelId: text('channel_id').notNull(), // YouTube Channel ID
+
+  // 影片元資料
+  title: text('title'),
+  publishedAt: integer('published_at', { mode: 'timestamp' }),
+
+  // 處理狀態
+  processStatus: text('process_status').notNull().default('pending'),
+  // 'pending' | 'processing' | 'completed' | 'failed' | 'skipped'
+  podcastId: text('podcast_id').references(() => podcasts.id, { onDelete: 'set null' }),
+
+  // 發現來源（用於診斷）
+  discoverySource: text('discovery_source').notNull(),
+  // 'pubsub' | 'cron' | 'manual'
+
+  // 錯誤追蹤
+  errorMessage: text('error_message'),
+  retryCount: integer('retry_count').default(0),
+
+  discoveredAt: integer('discovered_at', { mode: 'timestamp' }).notNull(),
+  processedAt: integer('processed_at', { mode: 'timestamp' }),
+})
+
 // ========== 發布系統表 ==========
 
 // 社交帳號連接
@@ -245,3 +335,12 @@ export type NewSocialAccount = typeof socialAccounts.$inferInsert
 
 export type PublishRecord = typeof publishRecords.$inferSelect
 export type NewPublishRecord = typeof publishRecords.$inferInsert
+
+export type YoutubeChannel = typeof youtubeChannels.$inferSelect
+export type NewYoutubeChannel = typeof youtubeChannels.$inferInsert
+
+export type YoutubeVideo = typeof youtubeVideos.$inferSelect
+export type NewYoutubeVideo = typeof youtubeVideos.$inferInsert
+
+export type CmoneyPodcastEpisode = typeof cmoneyPodcastEpisodes.$inferSelect
+export type NewCmoneyPodcastEpisode = typeof cmoneyPodcastEpisodes.$inferInsert
