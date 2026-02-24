@@ -28,14 +28,29 @@ const { data: authors } = await useFetch<Author[]>('/api/authors')
 // 作者篩選
 const selectedAuthorId = ref<string | null>(null)
 
+// 搜尋關鍵字
+const searchQuery = ref('')
+
 const authorOptions = computed(() => [
   { id: null, name: '全部作者' },
   ...(authors.value || []),
 ])
 
 const filteredPodcasts = computed(() => {
-  if (!selectedAuthorId.value) return props.podcasts
-  return props.podcasts.filter(p => p.authorId === selectedAuthorId.value)
+  let result = props.podcasts
+
+  // 按作者篩選
+  if (selectedAuthorId.value) {
+    result = result.filter(p => p.authorId === selectedAuthorId.value)
+  }
+
+  // 按搜尋關鍵字篩選
+  if (searchQuery.value.trim()) {
+    const query = searchQuery.value.toLowerCase()
+    result = result.filter(p => p.title.toLowerCase().includes(query))
+  }
+
+  return result
 })
 </script>
 
@@ -50,6 +65,21 @@ const filteredPodcasts = computed(() => {
         color="white"
         variant="ghost"
         @click="isModalOpen = true"
+      />
+    </div>
+
+
+    <!-- 搜尋框 -->
+    <div class="px-3 py-2 border-b border-gray-800">
+      <UInput
+        v-model="searchQuery"
+        placeholder="搜尋標題..."
+        size="sm"
+        icon="i-heroicons-magnifying-glass"
+        :ui="{
+          wrapper: 'w-full',
+          base: 'bg-gray-800 border-gray-700 text-white placeholder-gray-400',
+        }"
       />
     </div>
 
@@ -81,7 +111,7 @@ const filteredPodcasts = computed(() => {
     <!-- 列表 -->
     <div class="flex-1 overflow-y-auto p-2">
       <div v-if="filteredPodcasts.length === 0" class="text-center text-gray-500 py-8 text-sm">
-        {{ selectedAuthorId ? '該作者尚無記錄' : '尚無記錄' }}
+        {{ searchQuery ? '找不到符合的結果' : (selectedAuthorId ? '該作者尚無記錄' : '尚無記錄') }}
       </div>
       <SidebarPodcastItem
         v-for="podcast in filteredPodcasts"

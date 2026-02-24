@@ -86,14 +86,16 @@ function stopPolling() {
   }
 }
 
-// 當處理完成時停止輪詢
-watch(isProcessing, (processing) => {
-  if (processing) {
-    startPolling()
-  } else {
-    stopPolling()
-  }
-}, { immediate: true })
+// 當處理完成時停止輪詢（只在客戶端執行）
+onMounted(() => {
+  watch(isProcessing, (processing) => {
+    if (processing) {
+      startPolling()
+    } else {
+      stopPolling()
+    }
+  }, { immediate: true })
+})
 
 // 組件卸載時清理
 onUnmounted(() => {
@@ -209,16 +211,16 @@ async function handlePodcastDeleted(id: string) {
           </UBadge>
         </div>
         <div class="flex items-center gap-2">
-          <!-- 編輯人設按鈕 -->
+          <!-- 作者設定按鈕 -->
           <UButton
             v-if="podcast?.author"
             variant="ghost"
             color="gray"
             size="sm"
-            icon="i-heroicons-user-circle"
+            icon="i-heroicons-cog-6-tooth"
             @click="showPersonaModal = true"
           >
-            編輯「{{ podcast.author.name }}」人格
+            「{{ podcast.author.name }}」設定
           </UButton>
           <!-- 狀態指示器 -->
           <div class="flex items-center gap-2 text-sm text-gray-500">
