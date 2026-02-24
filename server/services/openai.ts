@@ -69,7 +69,9 @@ const BASE_PROMPT = `你是專業的財經 Podcast 內容轉貼文專家。
 
 ## 格式要求（非常重要）
 - 字數必須達到 700-800 字（這是硬性要求）
-- 句子要短，頻繁換行（每 1-2 句就換行）
+- 句子必須非常短，每句 5-15 字，最多不超過 20 字
+- 每 1-2 句就換行，頻繁換行
+- 用換行取代逗號，把一句長話拆成多句短話
 - 段落之間用「-」分隔，至少要有 5-6 個段落
 - 只在標題區用 emoji（🎧🔺）
 - 加入分隔線（— — — — — — —）
@@ -178,8 +180,10 @@ function buildPrompt(options: {
   postCount?: number
   excludeAngles?: AngleId[]
   youtubeDescription?: string | null
+  podcastLink?: string | null
+  publishDate?: Date | string | number | null
 }): string {
-  const { title, transcript, duration, authorName, authorPersona, userPreferences, postCount = 5, excludeAngles = [], youtubeDescription } = options
+  const { title, transcript, duration, authorName, authorPersona, userPreferences, postCount = 5, excludeAngles = [], youtubeDescription, podcastLink, publishDate } = options
 
   // 過濾出可用的視角
   const availableAngles = POST_ANGLES.filter(a => !excludeAngles.includes(a.id))
@@ -192,7 +196,7 @@ function buildPrompt(options: {
     const personaParts: string[] = []
 
     if (authorPersona.persona) {
-      personaParts.push(authorPersona.persona)
+      personaParts.push(`請仔細閱讀以下人設描述，其中包含固定的結尾格式，請務必遵循：\n${authorPersona.persona}`)
     }
     if (authorPersona.sloganToIgnore) {
       personaParts.push(`請忽略以下開場白/slogan：${authorPersona.sloganToIgnore}`)
@@ -202,7 +206,7 @@ function buildPrompt(options: {
     }
 
     if (personaParts.length > 0) {
-      prompt += `\n\n## 作者人設（${authorName || '未知作者'}）\n${personaParts.join('\n')}`
+      prompt += `\n\n## 作者人設（${authorName || '未知作者'}）- 必須嚴格遵循\n${personaParts.join('\n\n')}`
     }
   }
 
@@ -213,6 +217,25 @@ function buildPrompt(options: {
   prompt += `\n\n## Podcast 資訊\n標題: ${title}`
   if (duration) {
     prompt += `\n時長: ${Math.floor(duration / 60)} 分鐘`
+  }
+  if (podcastLink) {
+    prompt += `\nPodcast 連結: ${podcastLink}`
+  }
+  // 加入發布日期（重要：讓 AI 使用正確的日期）
+  if (publishDate) {
+    let dateObj: Date
+    if (publishDate instanceof Date) {
+      dateObj = publishDate
+    } else if (typeof publishDate === 'number') {
+      // Unix timestamp（秒）
+      dateObj = new Date(publishDate * 1000)
+    } else {
+      // ISO 字串或其他格式
+      dateObj = new Date(publishDate)
+    }
+    const formattedDate = `${dateObj.getFullYear()}/${String(dateObj.getMonth() + 1).padStart(2, '0')}/${String(dateObj.getDate()).padStart(2, '0')}`
+    prompt += `\n發布日期: ${formattedDate}`
+    prompt += `\n（重要：請在貼文標題區使用此日期，格式為 — ${formattedDate} —）`
   }
 
   // 加入逐字稿
@@ -225,14 +248,15 @@ function buildPrompt(options: {
 
   // 如果有 YouTube 描述，加入特殊指示
   if (youtubeDescription) {
-    prompt += `\n\n## 重要：貼文開頭內容（必須原封不動使用）
-以下是行銷團隊編寫的摘要，請將此內容完整放在每篇貼文的最前面，不要修改任何文字：
+    prompt += `\n\n## 重要：貼文開頭內容
+請將以下摘要內容完整放在每篇貼文的最前面，保持原有格式和換行，不要添加或刪除任何文字：
 
----開頭內容開始---
+「「「
 ${youtubeDescription}
----開頭內容結束---
+」」」
 
-在這段內容之後，再接續你生成的正文內容。正文不需要重複摘要中已經提到的重點。`
+摘要內容到此結束。請在此之後接續正文，正文不需要重複摘要中已經提到的重點。
+注意：不要輸出「「「或」」」這些符號，它們只是標示摘要範圍用的。`
   }
 
   // 多篇貼文指示
@@ -257,7 +281,9 @@ export async function generatePost(
   postCount: number = 5,
   excludeAngles: AngleId[] = [],
   youtubeDescription?: string | null,
-  authorId?: string | null
+  authorId?: string | null,
+  podcastLink?: string | null,
+  publishDate?: Date | string | number | null
 ): Promise<{ content: string; tokenCount: number; generationTimeMs: number; anglesUsed: AngleId[] }> {
   const openai = getOpenAI()
   const startTime = Date.now()
@@ -280,6 +306,8 @@ export async function generatePost(
     postCount: anglesToUse.length,
     excludeAngles,
     youtubeDescription,
+    podcastLink,
+    publishDate,
   })
 
   const completion = await openai.chat.completions.create({

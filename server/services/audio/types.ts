@@ -1,7 +1,6 @@
 export interface AudioChunk {
   index: number
-  url: string           // Vercel Blob URL
-  pathname: string
+  localPath: string     // 本地暫存檔案路徑
   startTime: number     // seconds
   endTime: number       // seconds
   duration: number      // seconds

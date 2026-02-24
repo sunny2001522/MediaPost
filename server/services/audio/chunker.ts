@@ -1,6 +1,5 @@
 import ffmpeg from 'fluent-ffmpeg'
 import ffmpegInstaller from '@ffmpeg-installer/ffmpeg'
-import { put, del } from '@vercel/blob'
 import { promises as fs } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
@@ -115,75 +114,53 @@ export async function extractChunk(
 
 /**
  * Process audio file and create chunks
- * Returns URLs to chunks stored in Vercel Blob
+ * Chunks are stored locally in temp directory
  */
 export async function createChunks(
-  audioUrl: string,
+  audioPath: string,
   options: ChunkingOptions = {}
 ): Promise<AudioChunk[]> {
-  const config = useRuntimeConfig()
-  const tempInputPath = await downloadToTemp(audioUrl)
+  const metadata = await getMetadata(audioPath)
+  const chunkBoundaries = calculateChunks(metadata, options)
 
-  try {
-    const metadata = await getMetadata(tempInputPath)
-    const chunkBoundaries = calculateChunks(metadata, options)
+  console.log(`[AudioChunker] Creating ${chunkBoundaries.length} chunks for ${metadata.duration}s audio`)
 
-    console.log(`[AudioChunker] Creating ${chunkBoundaries.length} chunks for ${metadata.duration}s audio`)
+  const chunks: AudioChunk[] = []
 
-    const chunks: AudioChunk[] = []
+  for (let i = 0; i < chunkBoundaries.length; i++) {
+    const { startTime, endTime } = chunkBoundaries[i]
+    const tempChunkPath = join(tmpdir(), `chunk-${nanoid()}.mp3`)
 
-    for (let i = 0; i < chunkBoundaries.length; i++) {
-      const { startTime, endTime } = chunkBoundaries[i]
-      const tempChunkPath = join(tmpdir(), `chunk-${nanoid()}.mp3`)
+    // Extract chunk
+    await extractChunk(audioPath, startTime, endTime, tempChunkPath)
 
-      // Extract chunk
-      await extractChunk(tempInputPath, startTime, endTime, tempChunkPath)
+    chunks.push({
+      index: i,
+      localPath: tempChunkPath,
+      startTime,
+      endTime,
+      duration: endTime - startTime,
+    })
 
-      // Upload to Vercel Blob
-      const chunkBuffer = await fs.readFile(tempChunkPath)
-      const pathname = `chunks/${nanoid()}.mp3`
-
-      const blob = await put(pathname, chunkBuffer, {
-        access: 'public',
-        token: config.blobReadWriteToken,
-        contentType: 'audio/mpeg',
-      })
-
-      chunks.push({
-        index: i,
-        url: blob.url,
-        pathname: blob.pathname,
-        startTime,
-        endTime,
-        duration: endTime - startTime,
-      })
-
-      // Cleanup temp chunk file
-      await fs.unlink(tempChunkPath).catch(() => {})
-    }
-
-    return chunks
-
-  } finally {
-    // Cleanup temp input file
-    await fs.unlink(tempInputPath).catch(() => {})
+    console.log(`[AudioChunker] Created chunk ${i + 1}/${chunkBoundaries.length}: ${tempChunkPath}`)
   }
+
+  return chunks
 }
 
 /**
- * Cleanup chunk files from Vercel Blob
+ * Cleanup chunk files from local temp directory
  */
 export async function cleanupChunks(chunks: AudioChunk[]): Promise<void> {
-  const config = useRuntimeConfig()
   await Promise.all(
     chunks.map(chunk =>
-      del(chunk.url, { token: config.blobReadWriteToken }).catch(() => {})
+      fs.unlink(chunk.localPath).catch(() => {})
     )
   )
 }
 
 /**
- * Get audio metadata from URL
+ * Get audio metadata from URL (downloads to temp first)
  */
 export async function getAudioMetadata(audioUrl: string): Promise<AudioMetadata> {
   const tempPath = await downloadToTemp(audioUrl)

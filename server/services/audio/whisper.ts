@@ -1,5 +1,6 @@
 import OpenAI from 'openai'
 import { toFile } from 'openai/uploads'
+import { promises as fs } from 'fs'
 import * as OpenCC from 'opencc-js'
 import type { AudioChunk, TranscriptionResult } from './types'
 
@@ -19,18 +20,13 @@ function getOpenAI(): OpenAI {
 }
 
 /**
- * Transcribe a single audio file (must be under 25MB)
+ * Transcribe a single audio file from local path (must be under 25MB)
  */
-export async function transcribeSingle(audioUrl: string): Promise<TranscriptionResult> {
+export async function transcribeSingle(localPath: string): Promise<TranscriptionResult> {
   const openai = getOpenAI()
 
-  // Download audio
-  const response = await fetch(audioUrl)
-  if (!response.ok) {
-    throw new Error(`Failed to fetch audio: ${response.status}`)
-  }
-
-  const audioBuffer = Buffer.from(await response.arrayBuffer())
+  // Read audio from local file
+  const audioBuffer = await fs.readFile(localPath)
 
   // Create file object for OpenAI
   const file = await toFile(audioBuffer, 'audio.mp3', {
@@ -64,7 +60,7 @@ export async function transcribeChunks(chunks: AudioChunk[]): Promise<Transcript
   for (const chunk of chunks) {
     console.log(`[Whisper] Transcribing chunk ${chunk.index + 1}/${chunks.length}`)
 
-    const result = await transcribeSingle(chunk.url)
+    const result = await transcribeSingle(chunk.localPath)
     results.push({ chunk, result })
   }
 
