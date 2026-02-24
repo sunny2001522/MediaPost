@@ -31,6 +31,18 @@ export default defineEventHandler(async (event) => {
 
   const now = new Date()
 
+  // 更新 CMoney IDs（如果有提供）
+  if (body.cmoneyPodcastTrackId !== undefined || body.cmoneyYoutubeChannelId !== undefined) {
+    await db
+      .update(schema.authors)
+      .set({
+        cmoneyPodcastTrackId: body.cmoneyPodcastTrackId ?? author.cmoneyPodcastTrackId,
+        cmoneyYoutubeChannelId: body.cmoneyYoutubeChannelId ?? author.cmoneyYoutubeChannelId,
+        updatedAt: now,
+      })
+      .where(eq(schema.authors.id, id))
+  }
+
   // 查詢現有的預設人設
   const [existingPersona] = await db
     .select()
@@ -56,13 +68,27 @@ export default defineEventHandler(async (event) => {
       })
       .where(eq(schema.authorPersonas.id, existingPersona.id))
 
-    // 回傳更新後的人設
+    // 回傳更新後的人設（包含 CMoney IDs）
     const [updated] = await db
       .select()
       .from(schema.authorPersonas)
       .where(eq(schema.authorPersonas.id, existingPersona.id))
 
-    return updated
+    // 取得最新的作者資料
+    const [updatedAuthor] = await db
+      .select({
+        cmoneyPodcastTrackId: schema.authors.cmoneyPodcastTrackId,
+        cmoneyYoutubeChannelId: schema.authors.cmoneyYoutubeChannelId,
+      })
+      .from(schema.authors)
+      .where(eq(schema.authors.id, id))
+      .limit(1)
+
+    return {
+      ...updated,
+      cmoneyPodcastTrackId: updatedAuthor?.cmoneyPodcastTrackId || null,
+      cmoneyYoutubeChannelId: updatedAuthor?.cmoneyYoutubeChannelId || null,
+    }
   } else {
     // 建立新人設
     const newPersonaId = nanoid()
@@ -81,12 +107,26 @@ export default defineEventHandler(async (event) => {
       updatedAt: now,
     })
 
-    // 回傳新建的人設
+    // 回傳新建的人設（包含 CMoney IDs）
     const [created] = await db
       .select()
       .from(schema.authorPersonas)
       .where(eq(schema.authorPersonas.id, newPersonaId))
 
-    return created
+    // 取得最新的作者資料
+    const [updatedAuthor] = await db
+      .select({
+        cmoneyPodcastTrackId: schema.authors.cmoneyPodcastTrackId,
+        cmoneyYoutubeChannelId: schema.authors.cmoneyYoutubeChannelId,
+      })
+      .from(schema.authors)
+      .where(eq(schema.authors.id, id))
+      .limit(1)
+
+    return {
+      ...created,
+      cmoneyPodcastTrackId: updatedAuthor?.cmoneyPodcastTrackId || null,
+      cmoneyYoutubeChannelId: updatedAuthor?.cmoneyYoutubeChannelId || null,
+    }
   }
 })

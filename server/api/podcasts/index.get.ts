@@ -1,4 +1,4 @@
-import { desc, eq } from 'drizzle-orm'
+import { asc, eq } from 'drizzle-orm'
 import { useDB, schema } from '~/server/database/client'
 
 export default defineEventHandler(async (event) => {
@@ -37,14 +37,14 @@ export default defineEventHandler(async (event) => {
       .from(schema.podcasts)
       .leftJoin(schema.authors, eq(schema.podcasts.authorId, schema.authors.id))
       .where(eq(schema.podcasts.authorId, authorId))
-      .orderBy(desc(schema.podcasts.createdAt))
+      .orderBy(asc(schema.podcasts.title))
   }
   else {
     result = await db
       .select(selectFields)
       .from(schema.podcasts)
       .leftJoin(schema.authors, eq(schema.podcasts.authorId, schema.authors.id))
-      .orderBy(desc(schema.podcasts.createdAt))
+      .orderBy(asc(schema.podcasts.title))
   }
 
   return result

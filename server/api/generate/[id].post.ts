@@ -34,6 +34,29 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, message: 'Podcast not transcribed yet' })
   }
 
+  // 取得發布日期（根據來源類型查詢）
+  let publishDate: Date | string | number | null = null
+  if (podcast.sourceType === 'youtube') {
+    // 從 youtubeVideos 取得 publishedAt
+    const videoRecord = await db.query.youtubeVideos.findFirst({
+      where: eq(schema.youtubeVideos.podcastId, id),
+    })
+    publishDate = videoRecord?.publishedAt || null
+  } else if (podcast.sourceType === 'cmoney') {
+    // 從 cmoneyPodcastEpisodes 取得 pubDate
+    const episodeRecord = await db.query.cmoneyPodcastEpisodes.findFirst({
+      where: eq(schema.cmoneyPodcastEpisodes.podcastId, id),
+    })
+    if (episodeRecord?.pubDate) {
+      // pubDate 是 Unix timestamp 字串，轉為數字
+      publishDate = parseInt(episodeRecord.pubDate, 10)
+    }
+  }
+  // 如果都沒有，使用 podcast.createdAt 作為備用
+  if (!publishDate) {
+    publishDate = podcast.createdAt
+  }
+
   // 檢查現有的 generations，取得已使用的視角
   const existingGenerations = await db
     .select()
@@ -74,7 +97,7 @@ export default defineEventHandler(async (event) => {
     // 決定要生成幾篇（最多 5 篇，但不超過可用視角數）
     const postCount = Math.min(5, availableAngles.length)
 
-    // 生成貼文（排除已使用的視角，傳入 YouTube 描述和作者 ID）
+    // 生成貼文（排除已使用的視角，傳入 YouTube 描述、作者 ID 和 Podcast 連結）
     const { content, tokenCount, generationTimeMs, anglesUsed } = await generatePost(
       podcast.transcript,
       podcast.title,
@@ -84,7 +107,9 @@ export default defineEventHandler(async (event) => {
       postCount,
       usedAngles,
       podcast.youtubeDescription,
-      authorId ?? undefined
+      authorId ?? undefined,
+      podcast.sourceUrl ?? undefined,
+      publishDate // 傳入發布日期
     )
 
     // 解析生成的貼文並分別儲存
