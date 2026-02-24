@@ -1,5 +1,24 @@
 {
   "buildCommand": "npm run build",
   "outputDirectory": ".output/public",
-  "framework": "nuxtjs"
+  "framework": "nuxtjs",
+  "functions": {
+    "api/inngest.ts": {
+      "maxDuration": 60
+    }
+  },
+  "crons": [
+    {
+      "path": "/api/cron/youtube-poll",
+      "schedule": "*/30 * * * *"
+    },
+    {
+      "path": "/api/cron/subscription-renewal",
+      "schedule": "0 */6 * * *"
+    },
+    {
+      "path": "/api/cron/cmoney-poll",
+      "schedule": "0 */4 * * *"
+    }
+  ]
 }

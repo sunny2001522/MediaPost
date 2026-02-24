@@ -4,6 +4,10 @@ export default defineNuxtConfig({
 
   devtools: { enabled: true },
 
+  devServer: {
+    port: 3004
+  },
+
   colorMode: {
     preference: 'light'
   },
@@ -27,8 +31,16 @@ export default defineNuxtConfig({
     threadsClientSecret: process.env.THREADS_CLIENT_SECRET,
     threadsRedirectUri: process.env.THREADS_REDIRECT_URI,
 
+    // Inngest
+    inngestEventKey: process.env.INNGEST_EVENT_KEY,
+    inngestSigningKey: process.env.INNGEST_SIGNING_KEY,
+
+    // Cron
+    cronSecret: process.env.CRON_SECRET,
+
     public: {
-      appName: 'MediaPost'
+      appName: 'MediaPost',
+      baseUrl: process.env.NUXT_PUBLIC_BASE_URL || process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3004'
     }
   },
 
