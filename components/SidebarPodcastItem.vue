@@ -8,15 +8,30 @@ interface PodcastWithAuthor extends Podcast {
 interface Props {
   podcast: PodcastWithAuthor
   isActive?: boolean
+  linkPrefix?: string // 自訂連結前綴，例如 "/股市隱者"
 }
 
 const props = defineProps<Props>()
+
+// 計算連結路徑
+const podcastLink = computed(() => {
+  if (props.linkPrefix) {
+    return `${props.linkPrefix}/${props.podcast.id}`
+  }
+  return `/podcast/${props.podcast.id}`
+})
 const emit = defineEmits<{
   delete: [id: string]
 }>()
 
 const isHovering = ref(false)
 const isDeleting = ref(false)
+const isRetrying = ref(false)
+
+// 是否可以重試（狀態卡住或失敗）
+const canRetry = computed(() =>
+  props.podcast.status === 'transcribing' || props.podcast.status === 'error'
+)
 
 const statusConfig = {
   pending: { color: 'gray', label: '待處理' },
@@ -49,11 +64,36 @@ async function handleDelete(e: Event) {
     isDeleting.value = false
   }
 }
+
+async function handleRetry(e: Event) {
+  e.preventDefault()
+  e.stopPropagation()
+
+  isRetrying.value = true
+  try {
+    await $fetch(`/api/transcribe/${props.podcast.id}`, { method: 'POST' })
+    useToast().add({
+      title: '已重新開始轉錄',
+      icon: 'i-heroicons-arrow-path',
+      color: 'green',
+    })
+  }
+  catch (error: any) {
+    useToast().add({
+      title: '重試失敗',
+      description: error.message,
+      color: 'red',
+    })
+  }
+  finally {
+    isRetrying.value = false
+  }
+}
 </script>
 
 <template>
   <NuxtLink
-    :to="`/podcast/${podcast.id}`"
+    :to="podcastLink"
     class="block p-3 rounded-lg transition-colors relative group"
     :class="isActive ? 'bg-gray-700' : 'hover:bg-gray-800'"
     @mouseenter="isHovering = true"
@@ -85,19 +125,38 @@ async function handleDelete(e: Event) {
         </div>
       </div>
 
-      <!-- 刪除按鈕 -->
-      <button
-        v-show="isHovering || isDeleting"
-        class="absolute right-2 top-3 p-1 rounded hover:bg-gray-600 text-gray-400 hover:text-red-400 transition-colors"
-        :disabled="isDeleting"
-        @click="handleDelete"
-      >
-        <UIcon
-          :name="isDeleting ? 'i-heroicons-arrow-path' : 'i-heroicons-trash'"
-          class="w-4 h-4"
-          :class="{ 'animate-spin': isDeleting }"
-        />
-      </button>
+      <!-- 操作按鈕 -->
+      <div class="absolute right-2 top-3 flex items-center gap-1">
+        <!-- 重試按鈕 -->
+        <button
+          v-if="canRetry"
+          v-show="isHovering || isRetrying"
+          class="p-1 rounded hover:bg-gray-600 text-gray-400 hover:text-blue-400 transition-colors"
+          :disabled="isRetrying"
+          title="重新轉錄"
+          @click="handleRetry"
+        >
+          <UIcon
+            name="i-heroicons-arrow-path"
+            class="w-4 h-4"
+            :class="{ 'animate-spin': isRetrying }"
+          />
+        </button>
+        <!-- 刪除按鈕 -->
+        <button
+          v-show="isHovering || isDeleting"
+          class="p-1 rounded hover:bg-gray-600 text-gray-400 hover:text-red-400 transition-colors"
+          :disabled="isDeleting"
+          title="刪除"
+          @click="handleDelete"
+        >
+          <UIcon
+            :name="isDeleting ? 'i-heroicons-arrow-path' : 'i-heroicons-trash'"
+            class="w-4 h-4"
+            :class="{ 'animate-spin': isDeleting }"
+          />
+        </button>
+      </div>
     </div>
   </NuxtLink>
 </template>

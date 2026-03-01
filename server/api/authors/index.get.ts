@@ -8,6 +8,7 @@ export default defineEventHandler(async () => {
     .select({
       id: schema.authors.id,
       name: schema.authors.name,
+      slug: schema.authors.slug,
       isActive: schema.authors.isActive,
       cmoneyPodcastTrackId: schema.authors.cmoneyPodcastTrackId,
       cmoneyYoutubeChannelId: schema.authors.cmoneyYoutubeChannelId,

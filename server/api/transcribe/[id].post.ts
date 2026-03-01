@@ -1,6 +1,8 @@
 import { eq } from 'drizzle-orm'
+import fs from 'fs/promises'
 import { useDB, schema } from '~/server/database/client'
-import { transcribeFromUrl, transcribeYouTube } from '~/server/services/audio'
+import { transcribeFromUrl, transcribeYouTube, transcribeFromPath } from '~/server/services/audio'
+import { downloadCMoneyAudio } from '~/server/services/audio/cmoney'
 
 export default defineEventHandler(async (event) => {
   const id = getRouterParam(event, 'id')
@@ -41,6 +43,17 @@ export default defineEventHandler(async (event) => {
       console.log('[Transcribe] Using OpenAI Whisper for YouTube:', podcast.sourceUrl)
       const result = await transcribeYouTube(podcast.sourceUrl)
       transcript = result.transcript
+    } else if (podcast.sourceType === 'cmoney' && podcast.sourceUrl) {
+      // CMoney：下載音檔後使用 OpenAI Whisper
+      console.log('[Transcribe] Using OpenAI Whisper for CMoney:', podcast.sourceUrl)
+      const { localPath } = await downloadCMoneyAudio(podcast.sourceUrl)
+      try {
+        const result = await transcribeFromPath(localPath)
+        transcript = result.transcript
+      } finally {
+        // 清理暫存檔案
+        await fs.unlink(localPath).catch(() => {})
+      }
     } else if (podcast.audioFileUrl) {
       // 上傳的音檔：使用 OpenAI Whisper
       console.log('[Transcribe] Using OpenAI Whisper for audio:', podcast.audioFileUrl)

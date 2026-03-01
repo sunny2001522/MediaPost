@@ -6,6 +6,7 @@ import { sqliteTable, text, integer, real } from 'drizzle-orm/sqlite-core'
 export const authors = sqliteTable('authors', {
   id: text('id').primaryKey(),
   name: text('name').notNull().unique(),
+  slug: text('slug').unique(), // 英文音譯，用於 URL（如 gushi-yinzhe）
   isActive: integer('is_active', { mode: 'boolean' }).default(true),
   // CMoney 整合
   cmoneyPodcastTrackId: text('cmoney_podcast_track_id'), // CMoney Podcast TrackId

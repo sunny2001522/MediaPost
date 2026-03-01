@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import type { AuthorPersona } from '~/server/database/schema'
 
-// 擴展 AuthorPersona 類型，包含從 authors 表取得的 CMoney 欄位
+// 擴展 AuthorPersona 類型，包含從 authors 表取得的欄位
 interface AuthorPersonaWithCMoney extends Partial<AuthorPersona> {
+  slug?: string | null
   cmoneyPodcastTrackId?: string | null
   cmoneyYoutubeChannelId?: string | null
 }
@@ -39,6 +40,7 @@ const tabs = [
 ]
 
 // ========== 人設相關 ==========
+const slug = ref('')
 const persona = ref('')
 const sloganToIgnore = ref('')
 const styleGuidelines = ref('')
@@ -135,12 +137,14 @@ async function loadPersona() {
   try {
     const data = await $fetch<AuthorPersonaWithCMoney | null>(`/api/authors/${props.authorId}/persona`)
     if (data) {
+      slug.value = data.slug || ''
       persona.value = data.persona || ''
       sloganToIgnore.value = data.sloganToIgnore || ''
       styleGuidelines.value = data.styleGuidelines || ''
       cmoneyPodcastTrackId.value = data.cmoneyPodcastTrackId || ''
       cmoneyYoutubeChannelId.value = data.cmoneyYoutubeChannelId || ''
     } else {
+      slug.value = ''
       persona.value = ''
       sloganToIgnore.value = ''
       styleGuidelines.value = ''
@@ -172,6 +176,7 @@ async function savePersona() {
     await $fetch(`/api/authors/${props.authorId}/persona`, {
       method: 'PUT',
       body: {
+        slug: slug.value || null,
         persona: persona.value || null,
         sloganToIgnore: sloganToIgnore.value || null,
         styleGuidelines: styleGuidelines.value || null,
@@ -576,6 +581,16 @@ async function syncCMoneyYoutube() {
           <p class="text-sm text-gray-500">
             設定此作者的寫作風格、語氣、特色用語等，AI 生成貼文時會遵循這些指引。
           </p>
+
+          <UFormGroup label="網址代稱（Slug）">
+            <UInput
+              v-model="slug"
+              placeholder="例如：gushi-yinzhe（英文小寫，用連字號分隔）"
+            />
+            <template #hint>
+              <span class="text-xs text-gray-400">用於網址路由，例如 /gushi-yinzhe/podcast-id</span>
+            </template>
+          </UFormGroup>
 
           <UFormGroup label="人設描述">
             <UTextarea

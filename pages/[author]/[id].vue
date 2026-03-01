@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import type { Podcast, Generation, Edit, Author } from '~/server/database/schema'
+import type { Podcast, Generation, Author } from '~/server/database/schema'
 
 const route = useRoute()
 const podcastId = computed(() => route.params.id as string)
+const authorSlug = computed(() => route.params.author as string)
 
 // 獲取當前 podcast 資料（包含作者資訊）
 const { data: podcast, refresh: refreshPodcast } = await useFetch<Podcast & { author?: Author | null }>(
@@ -149,7 +150,7 @@ async function saveEdit() {
     const result = await $fetch('/api/edits', {
       method: 'POST',
       body: {
-        generationId: generation.value.id,
+        generationId: (generation.value as any).id,
         originalContent: selectedOriginalPost.value,
         editedContent: editedContent.value
       }
@@ -186,9 +187,9 @@ async function handleDeletePost(generationId: string) {
 async function handlePodcastDeleted(id: string) {
   // 刷新側欄列表
   await refreshPodcasts()
-  // 如果刪除的是當前 podcast，導航到首頁
+  // 如果刪除的是當前 podcast，導航到作者頁面
   if (id === podcastId.value) {
-    await navigateTo('/')
+    await navigateTo(`/${authorSlug.value}`)
   }
 }
 
@@ -221,10 +222,11 @@ async function handleRetryTranscribe() {
 
 <template>
   <div class="flex h-screen bg-gray-50">
-    <!-- 側欄 -->
+    <!-- 側欄（透過 authorFilter 自動選中該作者） -->
     <AppSidebar
       :podcasts="podcasts || []"
       :current-id="podcastId"
+      :author-filter="authorSlug"
       @podcast-deleted="handlePodcastDeleted"
     />
 
@@ -318,7 +320,7 @@ async function handleRetryTranscribe() {
           :learning-result="learningResult"
           :preference-guidelines="preferenceGuidelines"
           :is-saving="isSaving"
-          :edit-id="generation?.generations?.[0]?.id || generation?.id"
+          :edit-id="generation?.generations?.[0]?.id || (generation as any)?.id"
           @save="saveEdit"
           @copy="copyToClipboard"
         />

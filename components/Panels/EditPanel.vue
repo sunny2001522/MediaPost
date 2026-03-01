@@ -5,6 +5,7 @@ interface Props {
   learningResult?: any
   isSaving?: boolean
   editId?: string
+  preferenceGuidelines?: string | null
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -76,6 +77,15 @@ const isPublishModalOpen = ref(false)
           Prompt 已更新
         </UBadge>
       </div>
+    </div>
+
+    <!-- 偏好指引區塊 -->
+    <div v-if="preferenceGuidelines" class="px-4 py-3 bg-amber-50 border-t border-amber-100">
+      <div class="flex items-center gap-2 mb-2">
+        <UIcon name="i-heroicons-sparkles" class="w-4 h-4 text-amber-600" />
+        <span class="text-sm font-medium text-amber-800">AI 學習到的偏好指引</span>
+      </div>
+      <p class="text-sm text-amber-700 whitespace-pre-wrap">{{ preferenceGuidelines }}</p>
     </div>
 
     <!-- 操作按鈕 -->

@@ -13,12 +13,28 @@ interface Props {
 
 const props = defineProps<Props>()
 const emit = defineEmits<{
-  generate: []
+  generate: [topicGuidance?: string]
   'select-post': [index: number, content: string]
   'delete-post': [generationId: string]
 }>()
 
-const isDeleting = ref(false)
+const isDeleting = ref<string | null>(null) // 儲存正在刪除的 generation ID
+
+// 生成選項彈出框
+const showGenerateModal = ref(false)
+const topicGuidance = ref('')
+
+function openGenerateModal() {
+  topicGuidance.value = ''
+  showGenerateModal.value = true
+}
+
+function confirmGenerate() {
+  const guidance = topicGuidance.value.trim()
+  emit('generate', guidance || undefined)
+  showGenerateModal.value = false
+  topicGuidance.value = ''
+}
 
 // 解析多個貼文
 const posts = computed(() => {
@@ -42,22 +58,29 @@ watch(() => props.content, () => {
   }
 }, { immediate: true })
 
-// 獲取當前選中貼文對應的 generation ID
-const currentGenerationId = computed(() => {
+// 獲取指定索引的 generation ID
+function getGenerationId(index: number): string | null {
   if (!props.generations || props.generations.length === 0) return null
-  // generations 按 batchIndex 排序，與 posts 順序對應
-  return props.generations[currentPostIndex.value]?.id
-})
+  return props.generations[index]?.id || null
+}
 
-// 刪除當前貼文
-async function handleDeletePost() {
-  if (!currentGenerationId.value) return
+// 刪除指定索引的貼文
+async function handleDeletePost(index: number) {
+  const generationId = getGenerationId(index)
+  if (!generationId) return
   if (!confirm('確定要刪除這篇貼文嗎？')) return
 
-  isDeleting.value = true
+  isDeleting.value = generationId
   try {
-    await $fetch(`/api/generations/${currentGenerationId.value}`, { method: 'DELETE' })
-    emit('delete-post', currentGenerationId.value)
+    await $fetch(`/api/generations/${generationId}`, { method: 'DELETE' })
+    emit('delete-post', generationId)
+    // 如果刪除的是當前選中的貼文，切換到第一個
+    if (currentPostIndex.value === index) {
+      currentPostIndex.value = 0
+    } else if (currentPostIndex.value > index) {
+      // 如果刪除的是前面的貼文，調整索引
+      currentPostIndex.value = Math.max(0, currentPostIndex.value - 1)
+    }
     useToast().add({
       title: '已刪除貼文',
       icon: 'i-heroicons-trash',
@@ -70,7 +93,7 @@ async function handleDeletePost() {
       color: 'red'
     })
   } finally {
-    isDeleting.value = false
+    isDeleting.value = null
   }
 }
 </script>
@@ -92,11 +115,59 @@ async function handleDeletePost() {
         color="gray"
         variant="soft"
         :loading="isGenerating"
-        @click="emit('generate')"
+        @click="openGenerateModal"
       >
         生成
       </UButton>
     </div>
+
+    <!-- 生成選項彈出框 -->
+    <UModal v-model="showGenerateModal">
+      <UCard>
+        <template #header>
+          <div class="flex items-center gap-2">
+            <UIcon name="i-heroicons-sparkles" class="w-5 h-5 text-gray-500" />
+            <span class="font-medium">生成貼文</span>
+          </div>
+        </template>
+
+        <div class="space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">
+              主題方向引導（選填）
+            </label>
+            <UTextarea
+              v-model="topicGuidance"
+              placeholder="例如：聚焦在投資心態、著重技術分析、強調風險管理..."
+              :rows="3"
+              autoresize
+            />
+            <p class="mt-1 text-xs text-gray-500">
+              這段文字會影響 AI 生成的內容方向
+            </p>
+          </div>
+        </div>
+
+        <template #footer>
+          <div class="flex justify-end gap-2">
+            <UButton
+              color="gray"
+              variant="ghost"
+              @click="showGenerateModal = false"
+            >
+              取消
+            </UButton>
+            <UButton
+              icon="i-heroicons-sparkles"
+              :loading="isGenerating"
+              @click="confirmGenerate"
+            >
+              開始生成
+            </UButton>
+          </div>
+        </template>
+      </UCard>
+    </UModal>
 
     <!-- 貼文選擇器 -->
     <div v-if="posts.length > 0" class="px-4 py-2 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
@@ -113,16 +184,14 @@ async function handleDeletePost() {
         </UButton>
       </div>
       <UButton
-        v-if="currentGenerationId"
         icon="i-heroicons-trash"
         size="xs"
         color="gray"
         variant="ghost"
-        :loading="isDeleting"
-        @click="handleDeletePost"
-      >
-        刪除
-      </UButton>
+        :loading="isDeleting !== null"
+        :disabled="!getGenerationId(currentPostIndex)"
+        @click="handleDeletePost(currentPostIndex)"
+      />
     </div>
 
     <!-- 內容 -->

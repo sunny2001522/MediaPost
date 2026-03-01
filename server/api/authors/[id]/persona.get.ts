@@ -13,9 +13,10 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  // 查詢作者資訊（包含 CMoney IDs）
+  // 查詢作者資訊（包含 slug 和 CMoney IDs）
   const [author] = await db
     .select({
+      slug: schema.authors.slug,
       cmoneyPodcastTrackId: schema.authors.cmoneyPodcastTrackId,
       cmoneyYoutubeChannelId: schema.authors.cmoneyYoutubeChannelId,
     })
@@ -36,9 +37,10 @@ export default defineEventHandler(async (event) => {
     )
     .limit(1)
 
-  // 合併人設和 CMoney IDs
+  // 合併人設、slug 和 CMoney IDs
   return {
     ...(persona || {}),
+    slug: author?.slug || null,
     cmoneyPodcastTrackId: author?.cmoneyPodcastTrackId || null,
     cmoneyYoutubeChannelId: author?.cmoneyYoutubeChannelId || null,
   }

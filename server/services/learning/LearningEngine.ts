@@ -11,6 +11,7 @@ export interface LearningResult {
   preferencesUpdated?: number
   promptUpdated?: boolean
   editId?: string
+  preferenceGuidelines?: string  // AI 學習到的偏好指引文字
 }
 
 export class LearningEngine {
@@ -61,12 +62,16 @@ export class LearningEngine {
     // 記錄學習事件
     await this.recordLearningEvents(patternsAdded, preferencesUpdated, promptUpdated)
 
+    // 取得當前活躍的偏好指引
+    const preferenceGuidelines = await this.getActiveUserPreferences()
+
     return {
       learned: true,
       patternsFound: patternsAdded,
       preferencesUpdated,
       promptUpdated,
-      editId
+      editId,
+      preferenceGuidelines: preferenceGuidelines || undefined
     }
   }
 

@@ -31,11 +31,12 @@ export default defineEventHandler(async (event) => {
 
   const now = new Date()
 
-  // 更新 CMoney IDs（如果有提供）
-  if (body.cmoneyPodcastTrackId !== undefined || body.cmoneyYoutubeChannelId !== undefined) {
+  // 更新作者欄位（slug 和 CMoney IDs）
+  if (body.slug !== undefined || body.cmoneyPodcastTrackId !== undefined || body.cmoneyYoutubeChannelId !== undefined) {
     await db
       .update(schema.authors)
       .set({
+        slug: body.slug ?? author.slug,
         cmoneyPodcastTrackId: body.cmoneyPodcastTrackId ?? author.cmoneyPodcastTrackId,
         cmoneyYoutubeChannelId: body.cmoneyYoutubeChannelId ?? author.cmoneyYoutubeChannelId,
         updatedAt: now,
@@ -56,13 +57,14 @@ export default defineEventHandler(async (event) => {
     .limit(1)
 
   if (existingPersona) {
-    // 更新現有人設
+    // 更新現有人設（確保 isActive = true）
     await db
       .update(schema.authorPersonas)
       .set({
         persona: body.persona ?? existingPersona.persona,
         sloganToIgnore: body.sloganToIgnore ?? existingPersona.sloganToIgnore,
         styleGuidelines: body.styleGuidelines ?? existingPersona.styleGuidelines,
+        isActive: true, // 確保人設是啟用狀態
         version: existingPersona.version + 1,
         updatedAt: now,
       })
