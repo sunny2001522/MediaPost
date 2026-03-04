@@ -1,9 +1,30 @@
 import { nanoid } from 'nanoid'
+import { eq } from 'drizzle-orm'
 import { useDB, schema } from '~/server/database/client'
+import { publishToThreads, publishToFacebook, publishToInstagram } from '~/server/services/publish/meta'
+import { getValidToken, publishToForum, extractStockTags, getValidBlogToken, publishToBlog, convertToHtml, formatStockTagsForBlog } from '~/server/services/cmoney'
+
+interface PublishBody {
+  editId?: string
+  podcastId?: string
+  projectId?: string
+  content: string
+  platforms: string[]
+  platformConfigs?: Record<string, {
+    accessToken?: string
+    userId?: string
+    pageId?: string
+    imageUrl?: string
+    link?: string
+    // CMoney 同學會專用
+    title?: string // 文章標題
+    authorId?: string // 指定作者 ID（如果無法從 podcast/project 推斷）
+  }>
+}
 
 export default defineEventHandler(async (event) => {
-  const body = await readBody(event)
-  const { editId, content, platforms } = body
+  const body = await readBody<PublishBody>(event)
+  const { editId, podcastId, projectId, content, platforms, platformConfigs } = body
 
   if (!content || !platforms || platforms.length === 0) {
     throw createError({
@@ -13,76 +34,505 @@ export default defineEventHandler(async (event) => {
   }
 
   const db = useDB()
-  const results: Array<{ platform: string; status: string; postUrl?: string; error?: string }> = []
+  const results: Array<{ platform: string; status: string; postUrl?: string; postId?: string; error?: string }> = []
 
   for (const platform of platforms) {
+    const config = platformConfigs?.[platform] || {}
+    const recordId = nanoid()
+
     try {
       if (platform === 'clipboard') {
         // 剪貼簿由前端處理，這裡只記錄
         await db.insert(schema.publishRecords).values({
-          id: nanoid(),
+          id: recordId,
           editId: editId || null,
+          podcastId: podcastId || null,
+          projectId: projectId || null,
           platform: 'clipboard',
           content,
           status: 'success',
           createdAt: new Date()
         })
         results.push({ platform: 'clipboard', status: 'success' })
-      } else if (platform === 'threads') {
-        // Threads API 整合（需要先完成 OAuth）
-        const config = useRuntimeConfig()
 
-        if (!config.threadsClientId) {
+      } else if (platform === 'threads') {
+        // Threads 發布
+        if (!config.accessToken || !config.userId) {
+          await db.insert(schema.publishRecords).values({
+            id: recordId,
+            editId: editId || null,
+            podcastId: podcastId || null,
+            projectId: projectId || null,
+            platform: 'threads',
+            content,
+            status: 'failed',
+            errorMessage: 'Missing Threads access token or user ID',
+            createdAt: new Date()
+          })
           results.push({
             platform: 'threads',
             status: 'failed',
-            error: 'Threads API not configured'
+            error: 'Missing Threads access token or user ID. Please configure in settings.'
           })
           continue
         }
 
-        // TODO: 實現 Threads 發布邏輯
-        // 這裡先標記為待實現
+        const result = await publishToThreads(
+          config.userId,
+          content,
+          config.accessToken,
+          config.imageUrl
+        )
+
         await db.insert(schema.publishRecords).values({
-          id: nanoid(),
+          id: recordId,
           editId: editId || null,
+          podcastId: podcastId || null,
+          projectId: projectId || null,
           platform: 'threads',
+          content,
+          status: result.success ? 'success' : 'failed',
+          platformPostId: result.postId || null,
+          postUrl: result.postUrl || null,
+          errorMessage: result.error || null,
+          createdAt: new Date()
+        })
+
+        results.push({
+          platform: 'threads',
+          status: result.success ? 'success' : 'failed',
+          postId: result.postId,
+          postUrl: result.postUrl,
+          error: result.error
+        })
+
+      } else if (platform === 'facebook') {
+        // Facebook 發布
+        if (!config.accessToken || !config.pageId) {
+          await db.insert(schema.publishRecords).values({
+            id: recordId,
+            editId: editId || null,
+            podcastId: podcastId || null,
+            projectId: projectId || null,
+            platform: 'facebook',
+            content,
+            status: 'failed',
+            errorMessage: 'Missing Facebook access token or page ID',
+            createdAt: new Date()
+          })
+          results.push({
+            platform: 'facebook',
+            status: 'failed',
+            error: 'Missing Facebook access token or page ID. Please configure in settings.'
+          })
+          continue
+        }
+
+        const result = await publishToFacebook(
+          config.pageId,
+          content,
+          config.accessToken,
+          config.link
+        )
+
+        await db.insert(schema.publishRecords).values({
+          id: recordId,
+          editId: editId || null,
+          podcastId: podcastId || null,
+          projectId: projectId || null,
+          platform: 'facebook',
+          content,
+          status: result.success ? 'success' : 'failed',
+          platformPostId: result.postId || null,
+          postUrl: result.postUrl || null,
+          errorMessage: result.error || null,
+          createdAt: new Date()
+        })
+
+        results.push({
+          platform: 'facebook',
+          status: result.success ? 'success' : 'failed',
+          postId: result.postId,
+          postUrl: result.postUrl,
+          error: result.error
+        })
+
+      } else if (platform === 'instagram') {
+        // Instagram 發布（需要圖片）
+        if (!config.accessToken || !config.userId) {
+          await db.insert(schema.publishRecords).values({
+            id: recordId,
+            editId: editId || null,
+            podcastId: podcastId || null,
+            projectId: projectId || null,
+            platform: 'instagram',
+            content,
+            status: 'failed',
+            errorMessage: 'Missing Instagram access token or user ID',
+            createdAt: new Date()
+          })
+          results.push({
+            platform: 'instagram',
+            status: 'failed',
+            error: 'Missing Instagram access token or user ID. Please configure in settings.'
+          })
+          continue
+        }
+
+        if (!config.imageUrl) {
+          await db.insert(schema.publishRecords).values({
+            id: recordId,
+            editId: editId || null,
+            podcastId: podcastId || null,
+            projectId: projectId || null,
+            platform: 'instagram',
+            content,
+            status: 'failed',
+            errorMessage: 'Instagram requires an image URL',
+            createdAt: new Date()
+          })
+          results.push({
+            platform: 'instagram',
+            status: 'failed',
+            error: 'Instagram requires an image URL'
+          })
+          continue
+        }
+
+        const result = await publishToInstagram(
+          config.userId,
+          config.imageUrl,
+          content,
+          config.accessToken
+        )
+
+        await db.insert(schema.publishRecords).values({
+          id: recordId,
+          editId: editId || null,
+          podcastId: podcastId || null,
+          projectId: projectId || null,
+          platform: 'instagram',
+          content,
+          status: result.success ? 'success' : 'failed',
+          platformPostId: result.postId || null,
+          postUrl: result.postUrl || null,
+          errorMessage: result.error || null,
+          createdAt: new Date()
+        })
+
+        results.push({
+          platform: 'instagram',
+          status: result.success ? 'success' : 'failed',
+          postId: result.postId,
+          postUrl: result.postUrl,
+          error: result.error
+        })
+
+      } else if (platform === 'cmoney_classmate' || platform === 'cmoney') {
+        // CMoney 同學會發文
+        // 需要先取得作者資訊來獲取認證
+        let authorId: string | null = null
+
+        // 嘗試從 podcastId 或 projectId 取得 authorId
+        if (podcastId) {
+          const podcast = await db.query.podcasts.findFirst({
+            where: eq(schema.podcasts.id, podcastId),
+          })
+          authorId = podcast?.authorId || null
+        }
+        if (!authorId && projectId) {
+          const project = await db.query.projects.findFirst({
+            where: eq(schema.projects.id, projectId),
+          })
+          authorId = project?.authorId || null
+        }
+
+        // 如果還是沒有 authorId，嘗試從 config 取得
+        if (!authorId && config.authorId) {
+          authorId = config.authorId
+        }
+
+        if (!authorId) {
+          await db.insert(schema.publishRecords).values({
+            id: recordId,
+            editId: editId || null,
+            podcastId: podcastId || null,
+            projectId: projectId || null,
+            platform,
+            content,
+            status: 'failed',
+            errorMessage: '無法確定作者，請確保有關聯的 podcast 或 project',
+            createdAt: new Date(),
+          })
+          results.push({
+            platform,
+            status: 'failed',
+            error: '無法確定作者，請確保有關聯的 podcast 或 project',
+          })
+          continue
+        }
+
+        // 取得作者資訊檢查是否有 CMoney 認證
+        const author = await db.query.authors.findFirst({
+          where: eq(schema.authors.id, authorId),
+        })
+
+        if (!author?.cmoneyClientId || !author?.cmoneyAccount || !author?.cmoneyPassword) {
+          await db.insert(schema.publishRecords).values({
+            id: recordId,
+            editId: editId || null,
+            podcastId: podcastId || null,
+            projectId: projectId || null,
+            platform,
+            content,
+            status: 'failed',
+            errorMessage: '作者未設定 CMoney 認證，請先至作者設定頁面設定',
+            createdAt: new Date(),
+          })
+          results.push({
+            platform,
+            status: 'failed',
+            error: '作者未設定 CMoney 認證，請先至作者設定頁面設定',
+          })
+          continue
+        }
+
+        try {
+          // 取得有效 Token
+          const token = await getValidToken(authorId)
+
+          // AI 提取股票標籤
+          const stockTags = await extractStockTags(content)
+
+          // 組合標題（使用 config.title 或取內容前 50 字）
+          const title = config.title || content.slice(0, 50).replace(/\n/g, ' ')
+
+          // 發文
+          const result = await publishToForum({
+            accessToken: token,
+            title,
+            text: content,
+            stockTags,
+            imageUrls: config.imageUrl ? [config.imageUrl] : [],
+          })
+
+          await db.insert(schema.publishRecords).values({
+            id: recordId,
+            editId: editId || null,
+            podcastId: podcastId || null,
+            projectId: projectId || null,
+            platform,
+            content,
+            status: result.success ? 'success' : 'failed',
+            platformPostId: result.articleId || null,
+            postUrl: result.articleUrl || null,
+            errorMessage: result.error || null,
+            createdAt: new Date(),
+          })
+
+          results.push({
+            platform,
+            status: result.success ? 'success' : 'failed',
+            postId: result.articleId,
+            postUrl: result.articleUrl,
+            error: result.error,
+          })
+        } catch (error: any) {
+          console.error(`[Publish] CMoney 發文錯誤:`, error)
+          await db.insert(schema.publishRecords).values({
+            id: recordId,
+            editId: editId || null,
+            podcastId: podcastId || null,
+            projectId: projectId || null,
+            platform,
+            content,
+            status: 'failed',
+            errorMessage: error.message || '發文時發生錯誤',
+            createdAt: new Date(),
+          })
+          results.push({
+            platform,
+            status: 'failed',
+            error: error.message || '發文時發生錯誤',
+          })
+        }
+
+      } else if (platform === 'investment_blog') {
+        // 投資網誌發文
+        // 需要先取得作者資訊來獲取認證
+        let authorId: string | null = null
+
+        // 嘗試從 podcastId 或 projectId 取得 authorId
+        if (podcastId) {
+          const podcast = await db.query.podcasts.findFirst({
+            where: eq(schema.podcasts.id, podcastId),
+          })
+          authorId = podcast?.authorId || null
+        }
+        if (!authorId && projectId) {
+          const project = await db.query.projects.findFirst({
+            where: eq(schema.projects.id, projectId),
+          })
+          authorId = project?.authorId || null
+        }
+
+        // 如果還是沒有 authorId，嘗試從 config 取得
+        if (!authorId && config.authorId) {
+          authorId = config.authorId
+        }
+
+        if (!authorId) {
+          await db.insert(schema.publishRecords).values({
+            id: recordId,
+            editId: editId || null,
+            podcastId: podcastId || null,
+            projectId: projectId || null,
+            platform,
+            content,
+            status: 'failed',
+            errorMessage: '無法確定作者，請確保有關聯的 podcast 或 project',
+            createdAt: new Date(),
+          })
+          results.push({
+            platform,
+            status: 'failed',
+            error: '無法確定作者，請確保有關聯的 podcast 或 project',
+          })
+          continue
+        }
+
+        // 取得作者資訊檢查是否有投資網誌認證
+        const author = await db.query.authors.findFirst({
+          where: eq(schema.authors.id, authorId),
+        })
+
+        if (!author?.blogClientId || !author?.blogAccount || !author?.blogPassword || !author?.blogAuthorSlug) {
+          await db.insert(schema.publishRecords).values({
+            id: recordId,
+            editId: editId || null,
+            podcastId: podcastId || null,
+            projectId: projectId || null,
+            platform,
+            content,
+            status: 'failed',
+            errorMessage: '作者未設定投資網誌認證，請先至作者設定頁面設定',
+            createdAt: new Date(),
+          })
+          results.push({
+            platform,
+            status: 'failed',
+            error: '作者未設定投資網誌認證，請先至作者設定頁面設定',
+          })
+          continue
+        }
+
+        try {
+          // 取得有效 Token
+          const token = await getValidBlogToken(authorId)
+
+          // AI 提取股票標籤並轉換為投資網誌格式
+          const extractedStocks = await extractStockTags(content)
+          const stockTags = formatStockTagsForBlog(extractedStocks)
+
+          // 組合標題（使用 config.title 或取內容前 50 字）
+          const title = config.title || content.slice(0, 50).replace(/\n/g, ' ')
+
+          // 將內容轉換為 HTML
+          const htmlContent = convertToHtml(content)
+
+          // 發文
+          const result = await publishToBlog({
+            accessToken: token,
+            authorSlug: author.blogAuthorSlug,
+            title,
+            content: htmlContent,
+            stockTags,
+            previewImgUrl: config.imageUrl,
+          })
+
+          await db.insert(schema.publishRecords).values({
+            id: recordId,
+            editId: editId || null,
+            podcastId: podcastId || null,
+            projectId: projectId || null,
+            platform,
+            content,
+            status: result.success ? 'success' : 'failed',
+            platformPostId: result.articleId || null,
+            postUrl: result.articleUrl || null,
+            errorMessage: result.error || null,
+            createdAt: new Date(),
+          })
+
+          results.push({
+            platform,
+            status: result.success ? 'success' : 'failed',
+            postId: result.articleId,
+            postUrl: result.articleUrl,
+            error: result.error,
+          })
+        } catch (error: any) {
+          console.error(`[Publish] 投資網誌發文錯誤:`, error)
+          await db.insert(schema.publishRecords).values({
+            id: recordId,
+            editId: editId || null,
+            podcastId: podcastId || null,
+            projectId: projectId || null,
+            platform,
+            content,
+            status: 'failed',
+            errorMessage: error.message || '發文時發生錯誤',
+            createdAt: new Date(),
+          })
+          results.push({
+            platform,
+            status: 'failed',
+            error: error.message || '發文時發生錯誤',
+          })
+        }
+
+      } else if (platform === 'line_community') {
+        // Line 社群 - 需要 Google Form 整合
+        await db.insert(schema.publishRecords).values({
+          id: recordId,
+          editId: editId || null,
+          podcastId: podcastId || null,
+          projectId: projectId || null,
+          platform,
           content,
           status: 'pending',
           createdAt: new Date()
         })
         results.push({
-          platform: 'threads',
+          platform,
           status: 'pending',
-          error: 'Threads integration pending OAuth setup'
+          error: 'Line Community integration pending. Content saved for manual posting.'
         })
-      } else if (platform === 'cmoney') {
-        // CMoney 需要手動發布，記錄一下
-        await db.insert(schema.publishRecords).values({
-          id: nanoid(),
-          editId: editId || null,
-          platform: 'cmoney',
-          content,
-          status: 'pending',
-          createdAt: new Date()
-        })
+
+      } else {
+        // 未知平台
         results.push({
-          platform: 'cmoney',
-          status: 'manual',
-          error: 'Please post manually to CMoney'
+          platform,
+          status: 'failed',
+          error: `Unknown platform: ${platform}`
         })
       }
+
     } catch (error: any) {
+      console.error(`Publish error for ${platform}:`, error)
       results.push({
         platform,
         status: 'failed',
-        error: error.message
+        error: error.message || 'Unknown error'
       })
     }
   }
 
+  // 更新專案的 publishRecords 計數（如果有 projectId）
+  // 這個統計會在 by-author API 中即時計算
+
   return {
-    success: true,
+    success: results.some(r => r.status === 'success'),
     results
   }
 })

@@ -2,6 +2,7 @@
 interface Props {
   content: string
   editId?: string
+  podcastId?: string
 }
 
 const props = defineProps<Props>()
@@ -14,7 +15,7 @@ const results = ref<Array<{ platform: string; status: string; postUrl?: string; 
 const platforms = [
   { id: 'clipboard', name: '複製到剪貼簿', icon: 'i-heroicons-clipboard-document', ready: true },
   { id: 'threads', name: 'Instagram Threads', icon: 'i-heroicons-chat-bubble-oval-left', ready: false },
-  { id: 'cmoney', name: 'CMoney 同學會', icon: 'i-heroicons-user-group', ready: false }
+  { id: 'cmoney', name: 'CMoney 同學會', icon: 'i-heroicons-user-group', ready: true }
 ]
 
 function togglePlatform(id: string) {
@@ -49,6 +50,7 @@ async function publish() {
         method: 'POST',
         body: {
           editId: props.editId,
+          podcastId: props.podcastId,
           content: props.content,
           platforms: otherPlatforms
         }

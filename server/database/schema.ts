@@ -1,5 +1,42 @@
 import { sqliteTable, text, integer, real } from 'drizzle-orm/sqlite-core'
 
+// ========== 常量定義 ==========
+
+// 媒材類型（輸入/輸出）
+export const MEDIA_TYPES = {
+  PODCAST: 'podcast',   // Podcast 音訊
+  VIDEO: 'video',       // 影片
+  POST: 'post',         // 貼文
+} as const
+
+// 平台（輸入/輸出）
+export const PLATFORMS = {
+  CMONEY_CLASSMATE: 'cmoney_classmate',   // 同學會
+  LINE_COMMUNITY: 'line_community',       // Line 社群
+  THREADS: 'threads',                      // Threads
+  FACEBOOK: 'facebook',                    // FB
+  INSTAGRAM: 'instagram',                  // IG
+  INVESTMENT_BLOG: 'investment_blog',     // 投資網誌
+  INTERNAL_VIDEO: 'internal_video',       // 內部影音
+  YOUTUBE: 'youtube',                      // YouTube（僅輸出）
+  APPLE_PODCAST: 'apple_podcast',         // Apple Podcast（輸入）
+} as const
+
+// 舊版相容
+export const INPUT_TYPES = {
+  SOCIAL_POST_TO_VIDEO: 'social_post_to_video',
+  SOCIAL_VIDEO_TO_SHORT: 'social_video_to_short',
+  PODCAST_TO_POST: 'podcast_to_post',
+  COURSE_TO_POST: 'course_to_post',
+} as const
+
+export const OUTPUT_PLATFORMS = PLATFORMS
+
+export type MediaType = typeof MEDIA_TYPES[keyof typeof MEDIA_TYPES]
+export type Platform = typeof PLATFORMS[keyof typeof PLATFORMS]
+export type InputType = typeof INPUT_TYPES[keyof typeof INPUT_TYPES]
+export type OutputPlatform = typeof OUTPUT_PLATFORMS[keyof typeof OUTPUT_PLATFORMS]
+
 // ========== 核心表 ==========
 
 // 作者表
@@ -8,9 +45,51 @@ export const authors = sqliteTable('authors', {
   name: text('name').notNull().unique(),
   slug: text('slug').unique(), // 英文音譯，用於 URL（如 gushi-yinzhe）
   isActive: integer('is_active', { mode: 'boolean' }).default(true),
-  // CMoney 整合
+  // CMoney 整合 - 內容抓取
   cmoneyPodcastTrackId: text('cmoney_podcast_track_id'), // CMoney Podcast TrackId
   cmoneyYoutubeChannelId: text('cmoney_youtube_channel_id'), // CMoney YouTube 頻道 ID
+  // CMoney 整合 - 同學會發文認證
+  cmoneyClientId: text('cmoney_client_id'), // OAuth Client ID
+  cmoneyAccount: text('cmoney_account'), // 登入 email
+  cmoneyPassword: text('cmoney_password'), // 密碼
+  cmoneyAccessToken: text('cmoney_access_token'), // 快取的 Token
+  cmoneyTokenExpiresAt: integer('cmoney_token_expires_at', { mode: 'timestamp' }), // Token 到期時間
+  // CMoney 整合 - 投資網誌發文認證（使用 outpost.cmoney.tw 測試機）
+  blogClientId: text('blog_client_id'), // 投資網誌 OAuth Client ID
+  blogAccount: text('blog_account'), // 投資網誌登入 email
+  blogPassword: text('blog_password'), // 投資網誌密碼
+  blogAccessToken: text('blog_access_token'), // 投資網誌快取的 Token
+  blogTokenExpiresAt: integer('blog_token_expires_at', { mode: 'timestamp' }), // 投資網誌 Token 到期時間
+  blogAuthorSlug: text('blog_author_slug'), // 投資網誌作者 slug（如 "cmoney"）
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+})
+
+// 專案表
+export const projects = sqliteTable('projects', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  authorId: text('author_id').notNull()
+    .references(() => authors.id, { onDelete: 'cascade' }),
+
+  // 輸入配置
+  inputType: text('input_type').notNull(), // MEDIA_TYPES: podcast / video / post
+  inputPlatform: text('input_platform'), // PLATFORMS: 來源平台
+  inputConfig: text('input_config'), // JSON: 輸入源特定配置
+
+  // 輸出配置
+  outputType: text('output_type'), // MEDIA_TYPES: podcast / video / post
+  outputPlatforms: text('output_platforms').notNull(), // JSON array: PLATFORMS
+  outputConfig: text('output_config'), // JSON: 各平台特定配置
+
+  // 排程配置
+  isAutoSync: integer('is_auto_sync', { mode: 'boolean' }).default(true),
+  syncInterval: integer('sync_interval').default(4), // 小時
+  lastSyncAt: integer('last_sync_at', { mode: 'timestamp' }),
+
+  // 狀態
+  isActive: integer('is_active', { mode: 'boolean' }).default(true),
+
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 })
@@ -42,7 +121,8 @@ export const podcasts = sqliteTable('podcasts', {
   id: text('id').primaryKey(),
   title: text('title').notNull(),
   authorId: text('author_id').references(() => authors.id, { onDelete: 'set null' }),
-  sourceType: text('source_type').notNull(), // 'upload' | 'youtube'
+  projectId: text('project_id').references(() => projects.id, { onDelete: 'set null' }), // 關聯專案
+  sourceType: text('source_type').notNull(), // 'upload' | 'youtube' | 'cmoney'
   sourceUrl: text('source_url'),
   audioFileUrl: text('audio_file_url'), // Vercel Blob URL
   transcript: text('transcript'),
@@ -51,6 +131,7 @@ export const podcasts = sqliteTable('podcasts', {
   duration: integer('duration'), // 秒
   status: text('status').notNull().default('pending'),
   // 'pending' | 'downloading' | 'transcribing' | 'generating' | 'completed' | 'error'
+  publishStatus: text('publish_status').default('pending'), // 'pending' | 'partial' | 'completed'
   errorMessage: text('error_message'),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
@@ -289,8 +370,10 @@ export const socialAccounts = sqliteTable('social_accounts', {
 export const publishRecords = sqliteTable('publish_records', {
   id: text('id').primaryKey(),
   editId: text('edit_id').references(() => edits.id),
+  podcastId: text('podcast_id').references(() => podcasts.id, { onDelete: 'cascade' }), // 關聯 podcast
+  projectId: text('project_id').references(() => projects.id, { onDelete: 'set null' }), // 關聯專案
 
-  platform: text('platform').notNull(), // 'threads' | 'cmoney' | 'clipboard'
+  platform: text('platform').notNull(), // 'threads' | 'cmoney' | 'clipboard' | OUTPUT_PLATFORMS
   content: text('content').notNull(),
 
   status: text('status').notNull(), // 'pending' | 'success' | 'failed'
@@ -306,6 +389,9 @@ export const publishRecords = sqliteTable('publish_records', {
 
 export type Author = typeof authors.$inferSelect
 export type NewAuthor = typeof authors.$inferInsert
+
+export type Project = typeof projects.$inferSelect
+export type NewProject = typeof projects.$inferInsert
 
 export type AuthorPersona = typeof authorPersonas.$inferSelect
 export type NewAuthorPersona = typeof authorPersonas.$inferInsert

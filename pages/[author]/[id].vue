@@ -1,27 +1,50 @@
 <script setup lang="ts">
 import type { Podcast, Generation, Author } from '~/server/database/schema'
 
+interface Project {
+  id: string
+  name: string
+  authorId: string
+  inputType: string
+  inputConfig: Record<string, unknown> | null
+  outputPlatforms: string[]
+  outputConfig: Record<string, Record<string, unknown>> | null
+  isAutoSync: boolean | null
+  syncInterval: number | null
+}
+
 const route = useRoute()
 const podcastId = computed(() => route.params.id as string)
 const authorSlug = computed(() => route.params.author as string)
 
 // 獲取當前 podcast 資料（包含作者資訊）
-const { data: podcast, refresh: refreshPodcast } = await useFetch<Podcast & { author?: Author | null }>(
+const { data: podcast, refresh: refreshPodcast } = await useFetch<Podcast & { author?: Author | null; project?: Project | null }>(
   () => `/api/podcasts/${podcastId.value}`
 )
 
-// 人設 Modal 狀態
-const showPersonaModal = ref(false)
+// 獲取作者列表（用於 Modal）
+const { data: authors } = await useFetch<Author[]>('/api/authors')
+
+// 專案設定 Modal 狀態
+const showProjectModal = ref(false)
+
+// 取得當前專案（如果有）
+const currentProject = computed(() => {
+  return (podcast.value as any)?.project || null
+})
 
 // 獲取所有 podcasts（側欄用）
 const { data: podcasts, refresh: refreshPodcasts } = await useFetch('/api/podcasts')
 
 // 當前 generation（現在可能包含多批次）
 const { data: generation, refresh: refreshGeneration } = await useFetch<{
+  id?: string
   generations?: Generation[]
   mergedContent?: string
   totalPosts?: number
   originalContent?: string
+  podcastId?: string
+  createdAt?: Date
 } | null>(
   () => `/api/podcasts/${podcastId.value}/generation`
 )
@@ -247,16 +270,16 @@ async function handleRetryTranscribe() {
           </UBadge>
         </div>
         <div class="flex items-center gap-2">
-          <!-- 作者設定按鈕 -->
+          <!-- 專案設定按鈕 -->
           <UButton
             v-if="podcast?.author"
             variant="ghost"
             color="gray"
             size="sm"
             icon="i-heroicons-cog-6-tooth"
-            @click="showPersonaModal = true"
+            @click="showProjectModal = true"
           >
-            「{{ podcast.author.name }}」設定
+            「{{ podcast.author.name }}」專案設定
           </UButton>
           <!-- 狀態指示器 -->
           <div class="flex items-center gap-2 text-sm text-gray-500">
@@ -321,6 +344,7 @@ async function handleRetryTranscribe() {
           :preference-guidelines="preferenceGuidelines"
           :is-saving="isSaving"
           :edit-id="generation?.generations?.[0]?.id || (generation as any)?.id"
+          :podcast-id="podcastId"
           @save="saveEdit"
           @copy="copyToClipboard"
         />
@@ -330,12 +354,14 @@ async function handleRetryTranscribe() {
     <!-- 學習反饋 Toast -->
     <LearningFeedback :result="learningResult" @close="learningResult = null" />
 
-    <!-- 人設編輯 Modal -->
-    <ModalsAuthorPersonaModal
+    <!-- 專案設定 Modal -->
+    <ModalsProjectModal
       v-if="podcast?.author"
-      v-model="showPersonaModal"
-      :author-id="podcast.author.id"
-      :author-name="podcast.author.name"
+      v-model="showProjectModal"
+      :project="currentProject"
+      :default-author-id="podcast.author.id"
+      :authors="authors || []"
+      @saved="refreshPodcast"
     />
   </div>
 </template>

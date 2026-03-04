@@ -12,12 +12,12 @@ const sourceType = ref<"upload" | "youtube">("youtube");
 const youtubeUrl = ref("");
 const title = ref("");
 const manualDescription = ref(""); // 手動輸入的 YouTube 描述
-const selectedAuthorId = ref<string | null>(props.defaultAuthorId ?? null);
+const selectedAuthorId = ref<string | undefined>(props.defaultAuthorId ?? undefined);
 
 // Modal 開啟時，重設作者為預設值
 watch(isOpen, (newVal) => {
   if (newVal) {
-    selectedAuthorId.value = props.defaultAuthorId ?? null;
+    selectedAuthorId.value = props.defaultAuthorId ?? undefined;
   }
 });
 const file = ref<File | null>(null);
@@ -147,7 +147,7 @@ async function submit() {
     youtubeUrl.value = "";
     title.value = "";
     manualDescription.value = "";
-    selectedAuthorId.value = null;
+    selectedAuthorId.value = undefined;
     file.value = null;
     resetUpload();
     isOpen.value = false;

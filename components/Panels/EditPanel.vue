@@ -5,6 +5,7 @@ interface Props {
   learningResult?: any
   isSaving?: boolean
   editId?: string
+  podcastId?: string
   preferenceGuidelines?: string | null
 }
 
@@ -129,6 +130,7 @@ const isPublishModalOpen = ref(false)
       v-model="isPublishModalOpen"
       :content="content"
       :edit-id="editId"
+      :podcast-id="podcastId"
     />
   </div>
 </template>

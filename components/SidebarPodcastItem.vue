@@ -1,7 +1,22 @@
 <script setup lang="ts">
-import type { Podcast } from '~/server/database/schema'
 
-interface PodcastWithAuthor extends Podcast {
+interface PodcastWithAuthor {
+  id: string
+  title: string
+  authorId?: string | null
+  projectId?: string | null
+  sourceType: string
+  sourceUrl?: string | null
+  audioFileUrl?: string | null
+  transcript?: string | null
+  transcriptSegments?: string | null
+  youtubeDescription?: string | null
+  duration?: number | null
+  status: string
+  publishStatus?: string | null
+  errorMessage?: string | null
+  createdAt: Date | string
+  updatedAt: Date | string
   author?: { id: string; name: string } | null
 }
 

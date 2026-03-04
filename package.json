@@ -30,7 +30,9 @@
     "vue-router": "^4.5.0"
   },
   "devDependencies": {
+    "@iconify-json/simple-icons": "^1.2.72",
     "@nuxt/devtools": "^1.7.0",
+    "@types/diff": "^7.0.2",
     "@types/fluent-ffmpeg": "^2.1.28",
     "drizzle-kit": "^0.30.0",
     "typescript": "^5.7.0"

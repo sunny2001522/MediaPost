@@ -1,11 +1,27 @@
 <script setup lang="ts">
-import type { Podcast, Author } from '~/server/database/schema'
+import type { Author } from '~/server/database/schema'
 
-interface AuthorWithSlug extends Author {
-  slug?: string | null
+interface AuthorWithSlug extends Omit<Author, 'slug'> {
+  slug: string | null
 }
 
-interface PodcastWithAuthor extends Podcast {
+interface PodcastWithAuthor {
+  id: string
+  title: string
+  authorId?: string | null
+  projectId?: string | null
+  sourceType: string
+  sourceUrl?: string | null
+  audioFileUrl?: string | null
+  transcript?: string | null
+  transcriptSegments?: string | null
+  youtubeDescription?: string | null
+  duration?: number | null
+  status: string
+  publishStatus?: string | null
+  errorMessage?: string | null
+  createdAt: Date | string
+  updatedAt: Date | string
   author?: { id: string; name: string; slug?: string | null } | null
 }
 
@@ -34,7 +50,7 @@ const isModalOpen = ref(false)
 const { data: authors } = await useFetch<AuthorWithSlug[]>('/api/authors')
 
 // 作者篩選
-const selectedAuthorId = ref<string | null>(null)
+const selectedAuthorId = ref<string | undefined>(undefined)
 
 // 搜尋關鍵字
 const searchQuery = ref('')
@@ -76,7 +92,7 @@ watch(selectedAuthorId, (newAuthorId, oldAuthorId) => {
       : `/${selectedAuthor.slug}`
     console.log('[AppSidebar] Navigating to:', targetPath)
     router.push(targetPath)
-  } else if (newAuthorId === null) {
+  } else if (!newAuthorId) {
     // 選擇了「全部作者」，導航回原始路由
     const targetPath = currentPodcastId ? `/podcast/${currentPodcastId}` : '/'
     console.log('[AppSidebar] Navigating to:', targetPath)
