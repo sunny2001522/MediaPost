@@ -47,11 +47,21 @@ export interface CMoneyYoutubeNewEvent {
   }
 }
 
+// 投資網誌文章事件
+export interface BlogArticleNewEvent {
+  name: 'blog/article.new'
+  data: {
+    blogArticleId: string
+    authorId: string
+  }
+}
+
 export type InngestEvents =
   | YoutubeVideoNewEvent
   | SubscriptionRenewalEvent
   | CMoneyPodcastNewEvent
   | CMoneyYoutubeNewEvent
+  | BlogArticleNewEvent
 
 // 建立 Inngest 客戶端
 // 本地開發時使用 Dev Server，不需要 eventKey

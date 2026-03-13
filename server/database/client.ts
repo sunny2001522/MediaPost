@@ -1,5 +1,5 @@
-import { drizzle } from 'drizzle-orm/libsql'
-import { createClient } from '@libsql/client'
+import { drizzle } from 'drizzle-orm/libsql/http'
+import { createClient } from '@libsql/client/http'
 import * as schema from './schema'
 
 const GLOBAL_KEY = '__TURSO_CLIENT__' as const

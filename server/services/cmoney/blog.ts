@@ -1,48 +1,32 @@
 /**
  * CMoney 投資網誌發文服務
  *
- * 基於 Python 腳本 1b_update_blog_token.py 和 3_blog_post.py 的實作
- * 使用 outpost.cmoney.tw 測試機進行認證和發文
+ * 使用 Admin API + apiKey 進行發文，不再需要個別作者的 OAuth 認證
  */
-
-import { eq } from 'drizzle-orm'
-import { useDB, schema } from '~/server/database/client'
 
 // ========== 常量定義 ==========
 
-// 測試機 Identity 端點（投資網誌專用）
-const BLOG_IDENTITY_URL = 'https://outpost.cmoney.tw/identity/token'
+// 正式站 / 測試站 URL（透過 CMONEY_BLOG_ENV 切換，預設 development）
+const BLOG_ENVS = {
+  production: {
+    adminArticleUrl: 'https://connect.cmoney.tw/InvestmentNote/api/Admin/Article',
+    articleBaseUrl: 'https://forum.cmoney.tw/notes/article',
+  },
+  development: {
+    adminArticleUrl: 'https://development-connect.cmoney.tw/InvestmentNote/api/Admin/Article',
+    articleBaseUrl: 'https://forumtest.cmoney.tw/notes/article',
+  },
+} as const
 
-// 測試機發文端點
-const BLOG_ARTICLE_CREATE_URL = 'https://development-connect.cmoney.tw/InvestmentNote/api/Article?actionType=public'
-
-// 測試機文章連結格式
-const BLOG_ARTICLE_BASE_URL = 'https://forumtest.cmoney.tw/notes/article'
-
-// Token 提前更新的緩衝時間（1 小時）
-const TOKEN_REFRESH_BUFFER_MS = 60 * 60 * 1000
+function getBlogEnv() {
+  const env = (process.env.CMONEY_BLOG_ENV || 'development') as keyof typeof BLOG_ENVS
+  return BLOG_ENVS[env] || BLOG_ENVS.development
+}
 
 // ========== 型別定義 ==========
 
-export interface BlogTokenResult {
-  accessToken: string
-  tokenType: string
-  expiresIn: number // 秒（通常 86400 = 24 小時）
-  expiresAt: Date
-}
-
-export interface BlogTokenError {
-  success: false
-  error: string
-  statusCode?: number
-}
-
-export type FetchBlogTokenResult =
-  | { success: true; data: BlogTokenResult }
-  | BlogTokenError
-
 export interface BlogPublishOptions {
-  accessToken: string
+  userId: string // Admin API userId（大數字 ID 如 "6870918203145058"）
   authorSlug: string // 投資網誌作者 slug（如 "cmoney"）
   title: string
   content: string // HTML 內容
@@ -59,167 +43,6 @@ export interface BlogPublishResult {
   articleId?: string
   articleUrl?: string
   error?: string
-}
-
-// ========== Token 相關函數 ==========
-
-/**
- * 呼叫投資網誌 Identity API 取得 Token
- * 使用 outpost.cmoney.tw 測試機
- */
-export async function fetchBlogToken(
-  clientId: string,
-  account: string,
-  password: string
-): Promise<FetchBlogTokenResult> {
-  const payload = new URLSearchParams({
-    grant_type: 'password',
-    client_id: clientId,
-    client_secret: '',
-    account: account,
-    password: password,
-    login_method: 'email',
-  })
-
-  console.log('[Blog Auth] 連線到 CMoney 投資網誌身份認證服務（測試機）...')
-
-  try {
-    const response = await fetch(BLOG_IDENTITY_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: payload.toString(),
-    })
-
-    if (response.status === 401) {
-      return {
-        success: false,
-        error: '認證失敗，帳號或密碼錯誤',
-        statusCode: 401,
-      }
-    }
-
-    if (!response.ok) {
-      const text = await response.text()
-      return {
-        success: false,
-        error: `伺服器錯誤 (${response.status}): ${text.slice(0, 200)}`,
-        statusCode: response.status,
-      }
-    }
-
-    const data = await response.json()
-
-    if (!data.access_token) {
-      return {
-        success: false,
-        error: '回應中沒有 access_token',
-      }
-    }
-
-    const expiresIn = data.expires_in || 86400 // 預設 24 小時
-    const expiresAt = new Date(Date.now() + expiresIn * 1000)
-
-    return {
-      success: true,
-      data: {
-        accessToken: data.access_token,
-        tokenType: data.token_type || 'Bearer',
-        expiresIn,
-        expiresAt,
-      },
-    }
-  } catch (error: any) {
-    if (error.cause?.code === 'ECONNREFUSED') {
-      return {
-        success: false,
-        error: '連線失敗，請確認網路連線（需要在內網環境）',
-      }
-    }
-    return {
-      success: false,
-      error: error.message || '未知錯誤',
-    }
-  }
-}
-
-/**
- * 檢查投資網誌 Token 是否過期（含緩衝時間）
- */
-export function isBlogTokenExpired(expiresAt: Date | null | undefined): boolean {
-  if (!expiresAt) return true
-  return Date.now() >= expiresAt.getTime() - TOKEN_REFRESH_BUFFER_MS
-}
-
-/**
- * 取得作者的有效投資網誌 Token
- * 如果 Token 過期會自動更新
- */
-export async function getValidBlogToken(authorId: string): Promise<string> {
-  const db = useDB()
-
-  // 取得作者資料
-  const author = await db.query.authors.findFirst({
-    where: eq(schema.authors.id, authorId),
-  })
-
-  if (!author) {
-    throw new Error(`找不到作者: ${authorId}`)
-  }
-
-  if (!author.blogClientId || !author.blogAccount || !author.blogPassword) {
-    throw new Error('作者未設定投資網誌認證資訊')
-  }
-
-  // 檢查現有 Token 是否有效
-  if (author.blogAccessToken && !isBlogTokenExpired(author.blogTokenExpiresAt)) {
-    return author.blogAccessToken
-  }
-
-  // Token 過期或不存在，重新取得
-  console.log(`[Blog Auth] 正在更新投資網誌 Token (作者: ${author.name})...`)
-
-  const result = await fetchBlogToken(
-    author.blogClientId,
-    author.blogAccount,
-    author.blogPassword
-  )
-
-  if (!result.success) {
-    throw new Error(`取得投資網誌 Token 失敗: ${result.error}`)
-  }
-
-  // 更新資料庫中的 Token
-  await db
-    .update(schema.authors)
-    .set({
-      blogAccessToken: result.data.accessToken,
-      blogTokenExpiresAt: result.data.expiresAt,
-      updatedAt: new Date(),
-    })
-    .where(eq(schema.authors.id, authorId))
-
-  console.log(`[Blog Auth] 投資網誌 Token 更新成功 (到期: ${result.data.expiresAt.toISOString()})`)
-
-  return result.data.accessToken
-}
-
-/**
- * 驗證投資網誌認證是否有效
- */
-export async function validateBlogAuth(
-  clientId: string,
-  account: string,
-  password: string
-): Promise<{ valid: boolean; error?: string }> {
-  const result = await fetchBlogToken(clientId, account, password)
-
-  if (result.success) {
-    return { valid: true }
-  }
-
-  return { valid: false, error: result.error }
 }
 
 // ========== 發文相關函數 ==========
@@ -245,20 +68,33 @@ function buildBlogArticlePayload(options: BlogPublishOptions): Record<string, an
 }
 
 /**
- * 發文到投資網誌
+ * 發文到投資網誌（使用 Admin API）
  */
 export async function publishToBlog(
   options: BlogPublishOptions
 ): Promise<BlogPublishResult> {
+  const apiKey = process.env.CMONEY_BLOG_ADMIN_API_KEY
+  if (!apiKey) {
+    return {
+      success: false,
+      error: '未設定 CMONEY_BLOG_ADMIN_API_KEY 環境變數',
+    }
+  }
+
+  const blogEnv = getBlogEnv()
+  const url = `${blogEnv.adminArticleUrl}?userId=${options.userId}&actionType=public`
+
   const headers = {
     accept: 'text/plain',
     'Content-Type': 'application/json',
-    Authorization: `Bearer ${options.accessToken}`,
+    apiKey,
   }
 
   const payload = buildBlogArticlePayload(options)
 
-  console.log('[Blog] 正在發文到投資網誌...')
+  const envName = process.env.CMONEY_BLOG_ENV || 'development'
+  console.log(`[Blog] 正在發文到投資網誌（Admin API, ${envName}）...`)
+  console.log('[Blog] userId:', options.userId)
   console.log('[Blog] 作者 slug:', options.authorSlug)
   console.log('[Blog] 標題:', options.title)
   if (options.tags?.length) {
@@ -269,25 +105,25 @@ export async function publishToBlog(
   }
 
   try {
-    const response = await fetch(BLOG_ARTICLE_CREATE_URL, {
+    const response = await fetch(url, {
       method: 'POST',
       headers,
       body: JSON.stringify(payload),
     })
 
     if (response.status === 401) {
-      console.error('[Blog] Token 無效或已過期 (401)')
+      console.error('[Blog] apiKey 無效 (401)')
       return {
         success: false,
-        error: 'Token 無效或已過期，請重新認證',
+        error: 'Admin API Key 無效，請檢查 CMONEY_BLOG_ADMIN_API_KEY',
       }
     }
 
     if (response.status === 403) {
-      console.error(`[Blog] 無發文權限 (403)，請確認 authorSlug（目前為 '${options.authorSlug}'）是否正確`)
+      console.error(`[Blog] 無發文權限 (403)，請確認 userId（${options.userId}）和 authorSlug（${options.authorSlug}）是否正確`)
       return {
         success: false,
-        error: `無發文權限，請確認作者 slug（${options.authorSlug}）是否正確`,
+        error: `無發文權限，請確認 userId（${options.userId}）和作者 slug（${options.authorSlug}）是否正確`,
       }
     }
 
@@ -311,7 +147,7 @@ export async function publishToBlog(
       }
     }
 
-    const articleUrl = `${BLOG_ARTICLE_BASE_URL}/${options.authorSlug}-${articleId}`
+    const articleUrl = `${blogEnv.articleBaseUrl}/${options.authorSlug}-${articleId}`
 
     console.log('[Blog] 發文成功!')
     console.log('[Blog] articleId:', articleId)

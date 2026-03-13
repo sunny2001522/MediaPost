@@ -2,17 +2,20 @@
  * 設定/更新作者的 CMoney 認證
  * PUT /api/authors/{id}/cmoney-auth
  *
- * 設定認證時會同時驗證帳號密碼是否正確
+ * 支援兩種認證方式：
+ * 1. clientId + account + password（grant_type=password）
+ * 2. clientId + refreshToken（grant_type=refresh_token）
  */
 
 import { eq } from 'drizzle-orm'
 import { useDB, schema } from '~/server/database/client'
-import { fetchCMoneyToken } from '~/server/services/cmoney'
+import { fetchCMoneyToken, fetchCMoneyTokenByRefreshToken } from '~/server/services/cmoney'
 
 interface CMoneyAuthBody {
   clientId: string
-  account: string
-  password: string
+  account?: string
+  password?: string
+  refreshToken?: string
 }
 
 export default defineEventHandler(async (event) => {
@@ -26,12 +29,22 @@ export default defineEventHandler(async (event) => {
   }
 
   const body = await readBody<CMoneyAuthBody>(event)
-  const { clientId, account, password } = body
+  const { clientId, account, password, refreshToken } = body
 
-  if (!clientId || !account || !password) {
+  if (!clientId) {
     throw createError({
       statusCode: 400,
-      message: 'Missing required fields: clientId, account, password',
+      message: 'Missing required field: clientId',
+    })
+  }
+
+  const hasPasswordAuth = !!(account && password)
+  const hasRefreshTokenAuth = !!refreshToken
+
+  if (!hasPasswordAuth && !hasRefreshTokenAuth) {
+    throw createError({
+      statusCode: 400,
+      message: 'Missing required fields: provide (account + password) or (refreshToken)',
     })
   }
 
@@ -50,9 +63,15 @@ export default defineEventHandler(async (event) => {
   }
 
   // 驗證認證是否有效（嘗試取得 Token）
-  console.log(`[CMoney Auth] 驗證認證 (作者: ${author.name}, 帳號: ${account})...`)
+  let tokenResult
 
-  const tokenResult = await fetchCMoneyToken(clientId, account, password)
+  if (hasRefreshTokenAuth) {
+    console.log(`[CMoney Auth] 驗證 refresh_token 認證 (作者: ${author.name})...`)
+    tokenResult = await fetchCMoneyTokenByRefreshToken(clientId, refreshToken!)
+  } else {
+    console.log(`[CMoney Auth] 驗證 password 認證 (作者: ${author.name}, 帳號: ${account})...`)
+    tokenResult = await fetchCMoneyToken(clientId, account!, password!)
+  }
 
   if (!tokenResult.success) {
     console.error(`[CMoney Auth] 驗證失敗:`, tokenResult.error)
@@ -63,23 +82,37 @@ export default defineEventHandler(async (event) => {
   }
 
   // 驗證成功，更新資料庫
+  const updateData: Record<string, any> = {
+    cmoneyClientId: clientId,
+    cmoneyAccessToken: tokenResult.data.accessToken,
+    cmoneyTokenExpiresAt: tokenResult.data.expiresAt,
+    updatedAt: new Date(),
+  }
+
+  if (hasRefreshTokenAuth) {
+    // refresh_token 模式：儲存 refresh_token，若回傳新的則更新
+    updateData.cmoneyRefreshToken = tokenResult.data.refreshToken || refreshToken
+  } else {
+    // password 模式：儲存帳號密碼
+    updateData.cmoneyAccount = account
+    updateData.cmoneyPassword = password
+    // 如果回傳了 refresh_token 也一併存起來
+    if (tokenResult.data.refreshToken) {
+      updateData.cmoneyRefreshToken = tokenResult.data.refreshToken
+    }
+  }
+
   await db
     .update(schema.authors)
-    .set({
-      cmoneyClientId: clientId,
-      cmoneyAccount: account,
-      cmoneyPassword: password,
-      cmoneyAccessToken: tokenResult.data.accessToken,
-      cmoneyTokenExpiresAt: tokenResult.data.expiresAt,
-      updatedAt: new Date(),
-    })
+    .set(updateData)
     .where(eq(schema.authors.id, authorId))
 
-  console.log(`[CMoney Auth] 認證設定成功 (作者: ${author.name})`)
+  console.log(`[CMoney Auth] 認證設定成功 (作者: ${author.name}, 方式: ${hasRefreshTokenAuth ? 'refresh_token' : 'password'})`)
 
   return {
     success: true,
     message: 'CMoney 認證設定成功',
+    authMethod: hasRefreshTokenAuth ? 'refresh_token' : 'password',
     tokenExpiresAt: tokenResult.data.expiresAt.toISOString(),
   }
 })

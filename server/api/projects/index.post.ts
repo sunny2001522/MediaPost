@@ -5,7 +5,9 @@ interface CreateProjectBody {
   name: string
   authorId: string
   inputType: string
+  inputPlatform?: string
   inputConfig?: Record<string, unknown>
+  outputType?: string
   outputPlatforms: string[]
   outputConfig?: Record<string, Record<string, unknown>>
   isAutoSync?: boolean
@@ -32,7 +34,9 @@ export default defineEventHandler(async (event) => {
     name: body.name,
     authorId: body.authorId,
     inputType: body.inputType,
+    inputPlatform: body.inputPlatform || null,
     inputConfig: body.inputConfig ? JSON.stringify(body.inputConfig) : null,
+    outputType: body.outputType || null,
     outputPlatforms: JSON.stringify(body.outputPlatforms),
     outputConfig: body.outputConfig ? JSON.stringify(body.outputConfig) : null,
     isAutoSync: body.isAutoSync ?? true,

@@ -15,9 +15,18 @@ interface Project {
 
 interface CMoneyAuthStatus {
   hasAuth: boolean
+  authMethod: 'password' | 'refresh_token' | null
+  hasRefreshToken: boolean
   account: string | null
   tokenValid: boolean
   tokenExpiresAt: string | null
+}
+
+interface ThreadsAuthStatus {
+  hasAuth: boolean
+  username: string | null
+  tokenExpiresAt: string | null
+  isTokenValid: boolean
 }
 
 interface Props {
@@ -33,8 +42,10 @@ const isOpen = defineModel<boolean>({ default: false })
 // ========== CMoney 認證狀態 ==========
 const cmoneyAuth = ref<CMoneyAuthStatus | null>(null)
 const blogAuth = ref<CMoneyAuthStatus | null>(null)
+const threadsAuth = ref<ThreadsAuthStatus | null>(null)
 const isSavingCMoneyAuth = ref(false)
 const isSavingBlogAuth = ref(false)
+const isDisconnectingThreads = ref(false)
 
 // 是否為編輯模式
 const isEditing = computed(() => !!props.project)
@@ -65,19 +76,19 @@ const inputPlatformOptions = [
   { value: 'apple_podcast', label: 'Apple Podcast', icon: 'i-simple-icons-applepodcasts', ready: true },
   { value: 'youtube', label: 'YouTube', icon: 'i-simple-icons-youtube', ready: true },
   { value: 'internal_video', label: '內部影音', icon: 'i-heroicons-film', ready: true },
-  { value: 'cmoney_classmate', label: '同學會', icon: 'i-heroicons-user-group', ready: false, needsAuth: true },
+  { value: 'cmoney_classmate', label: '同學會', icon: 'i-heroicons-user-group', ready: true },
   { value: 'line_community', label: 'Line 社群', icon: 'i-simple-icons-line', ready: false },
   { value: 'threads', label: 'Threads', icon: 'i-simple-icons-threads', ready: false, needsOAuth: true },
   { value: 'facebook', label: 'FB', icon: 'i-simple-icons-facebook', ready: false, needsOAuth: true },
   { value: 'instagram', label: 'IG', icon: 'i-simple-icons-instagram', ready: false, needsOAuth: true },
-  { value: 'investment_blog', label: '投資網誌', icon: 'i-heroicons-newspaper', ready: false, needsAuth: true },
+  { value: 'investment_blog', label: '投資網誌', icon: 'i-heroicons-newspaper', ready: true },
 ]
 
 // 輸出平台選項（ready: true 表示已實作功能）
 const outputPlatformOptions = [
   { value: 'cmoney_classmate', label: '同學會', icon: 'i-heroicons-user-group', ready: true },
   { value: 'line_community', label: 'Line 社群', icon: 'i-simple-icons-line', ready: false },
-  { value: 'threads', label: 'Threads', icon: 'i-simple-icons-threads', ready: false, needsOAuth: true },
+  { value: 'threads', label: 'Threads', icon: 'i-simple-icons-threads', ready: true, needsOAuth: true },
   { value: 'facebook', label: 'FB', icon: 'i-simple-icons-facebook', ready: false, needsOAuth: true },
   { value: 'instagram', label: 'IG', icon: 'i-simple-icons-instagram', ready: false, needsOAuth: true },
   { value: 'investment_blog', label: '投資網誌', icon: 'i-heroicons-newspaper', ready: true },
@@ -102,33 +113,35 @@ const inputConfigFields: Record<string, Array<{ key: string; label: string; plac
     { key: 'videoUrl', label: '影音網址', placeholder: '輸入內部影音網址' },
   ],
   'cmoney_classmate': [
-    { key: 'clientId', label: 'Client ID', placeholder: 'OAuth Client ID' },
-    { key: 'account', label: '帳號 Email', placeholder: 'your@email.com' },
-    { key: 'password', label: '密碼', placeholder: '密碼', type: 'password' },
+    { key: 'boardId', label: 'Board ID', placeholder: '例如：10076（長線投資）' },
   ],
   'investment_blog': [
-    { key: 'clientId', label: 'Client ID', placeholder: 'OAuth Client ID' },
-    { key: 'account', label: '帳號 Email', placeholder: 'your@email.com' },
-    { key: 'password', label: '密碼', placeholder: '密碼', type: 'password' },
-    { key: 'authorSlug', label: '作者 Slug', placeholder: '例如：cmoney' },
+    { key: 'authorSlug', label: '作者 Slug', placeholder: '例如：mike' },
   ],
 }
+
+// 同學會文章類型選項
+const forumArticleTypes = [
+  { value: 'personal', label: '個版' },
+  { value: 'group_v1', label: '社團 v1' },
+  { value: 'group_v2', label: '社團 v2' },
+]
 
 // 輸出平台對應的配置欄位
 const outputConfigFields: Record<string, Array<{ key: string; label: string; placeholder: string; type?: string }>> = {
   'cmoney_classmate': [
     { key: 'clientId', label: 'Client ID', placeholder: 'OAuth Client ID' },
-    { key: 'account', label: '帳號 Email', placeholder: 'your@email.com' },
+    { key: 'refreshToken', label: 'Refresh Token', placeholder: 'Refresh Token（優先使用）' },
+    { key: 'account', label: '帳號 Email', placeholder: 'your@email.com（或使用 Refresh Token）' },
     { key: 'password', label: '密碼', placeholder: '密碼', type: 'password' },
+    { key: 'boardId', label: 'Board ID（社團 v2）', placeholder: '社團 v2 的 Board ID' },
   ],
   'line_community': [
     { key: 'formUrl', label: 'Google Form URL', placeholder: '輸入 Google Form 網址' },
   ],
   'investment_blog': [
-    { key: 'clientId', label: 'Client ID', placeholder: 'OAuth Client ID' },
-    { key: 'account', label: '帳號 Email', placeholder: 'your@email.com' },
-    { key: 'password', label: '密碼', placeholder: '密碼', type: 'password' },
     { key: 'authorSlug', label: '作者 Slug', placeholder: '例如：cmoney' },
+    { key: 'userId', label: 'CMoney User ID', placeholder: '例如：6870918203145058' },
   ],
 }
 
@@ -143,12 +156,37 @@ const currentInputFields = computed(() => {
   return inputConfigFields[form.value.inputPlatform] || []
 })
 
-// 需要認證的輸入平台
-const inputAuthPlatforms = ['cmoney_classmate', 'investment_blog']
+// 需要認證的輸入平台（同學會輸入不需認證，只需 boardId）
+const inputAuthPlatforms = ['investment_blog']
 
 // 當前選中的輸入平台資訊
 const selectedInputPlatform = computed(() => {
   return inputPlatformOptions.find(p => p.value === form.value.inputPlatform)
+})
+
+// 監聽 URL 參數（Threads OAuth 回調）
+onMounted(() => {
+  const url = new URL(window.location.href)
+  const threadsStatus = url.searchParams.get('threads')
+  if (threadsStatus === 'connected') {
+    useToast().add({
+      title: 'Threads 帳號連結成功',
+      icon: 'i-heroicons-check-circle',
+      color: 'green',
+    })
+    // 清除 URL 參數
+    url.searchParams.delete('threads')
+    window.history.replaceState({}, '', url.toString())
+  } else if (threadsStatus === 'error') {
+    useToast().add({
+      title: 'Threads 連結失敗',
+      description: url.searchParams.get('message') || '請重試',
+      color: 'red',
+    })
+    url.searchParams.delete('threads')
+    url.searchParams.delete('message')
+    window.history.replaceState({}, '', url.toString())
+  }
 })
 
 // Modal 開啟時初始化
@@ -228,6 +266,7 @@ watch(isOpen, async (open) => {
       }
       cmoneyAuth.value = null
       blogAuth.value = null
+      threadsAuth.value = null
     }
   }
 })
@@ -242,16 +281,19 @@ watch(() => form.value.authorId, async (newAuthorId) => {
 // 載入認證狀態
 async function loadAuthStatus(authorId: string) {
   try {
-    const [cmoneyData, blogData] = await Promise.all([
+    const [cmoneyData, blogData, threadsData] = await Promise.all([
       $fetch<CMoneyAuthStatus>(`/api/authors/${authorId}/cmoney-auth`).catch(() => null),
       $fetch<CMoneyAuthStatus>(`/api/authors/${authorId}/blog-auth`).catch(() => null),
+      $fetch<ThreadsAuthStatus>(`/api/authors/${authorId}/threads-auth`).catch(() => null),
     ])
     cmoneyAuth.value = cmoneyData
     blogAuth.value = blogData
+    threadsAuth.value = threadsData
   } catch (error) {
     console.error('Failed to load auth status:', error)
     cmoneyAuth.value = null
     blogAuth.value = null
+    threadsAuth.value = null
   }
 }
 
@@ -263,20 +305,33 @@ async function saveCMoneyAuth() {
   const isFromInput = form.value.inputPlatform === 'cmoney_classmate' && inputConfig?.clientId
   const config = isFromInput ? inputConfig : outputConfig
 
-  if (!config?.clientId || !config?.account || !config?.password) {
-    useToast().add({ title: '請填寫同學會所有認證欄位', color: 'red' })
+  if (!config?.clientId) {
+    useToast().add({ title: '請填寫 Client ID', color: 'red' })
+    return
+  }
+
+  const hasRefreshToken = !!config?.refreshToken
+  const hasPassword = !!(config?.account && config?.password)
+
+  if (!hasRefreshToken && !hasPassword) {
+    useToast().add({ title: '請填寫 Refresh Token 或帳號密碼', color: 'red' })
     return
   }
 
   isSavingCMoneyAuth.value = true
   try {
+    const body: Record<string, string> = { clientId: config.clientId }
+    if (hasRefreshToken) {
+      body.refreshToken = config.refreshToken!
+    }
+    if (hasPassword) {
+      body.account = config.account!
+      body.password = config.password!
+    }
+
     await $fetch(`/api/authors/${form.value.authorId}/cmoney-auth`, {
       method: 'PUT',
-      body: {
-        clientId: config.clientId,
-        account: config.account,
-        password: config.password,
-      },
+      body,
     })
     useToast().add({
       title: '同學會認證設定成功',
@@ -284,16 +339,16 @@ async function saveCMoneyAuth() {
       color: 'green',
     })
     cmoneyAuth.value = await $fetch<CMoneyAuthStatus>(`/api/authors/${form.value.authorId}/cmoney-auth`)
-    // 清空密碼
+    // 清空敏感欄位
     if (isFromInput) {
-      form.value.inputConfig = { ...inputConfig, password: '' }
+      form.value.inputConfig = { ...inputConfig, password: '', refreshToken: '' }
     } else {
-      form.value.outputConfig['cmoney_classmate'] = { ...outputConfig, password: '' }
+      form.value.outputConfig['cmoney_classmate'] = { ...outputConfig, password: '', refreshToken: '' }
     }
   } catch (error: any) {
     useToast().add({
       title: '同學會認證失敗',
-      description: error.data?.message || error.message || '請檢查帳號密碼',
+      description: error.data?.message || error.message || '請檢查認證資訊',
       color: 'red',
     })
   } finally {
@@ -306,11 +361,11 @@ async function saveBlogAuth() {
   // 優先從輸出配置取得，如果沒有再從輸入配置取得
   const outputConfig = form.value.outputConfig['investment_blog']
   const inputConfig = form.value.inputConfig
-  const isFromInput = form.value.inputPlatform === 'investment_blog' && inputConfig?.clientId
+  const isFromInput = form.value.inputPlatform === 'investment_blog' && inputConfig?.authorSlug
   const config = isFromInput ? inputConfig : outputConfig
 
-  if (!config?.clientId || !config?.account || !config?.password || !config?.authorSlug) {
-    useToast().add({ title: '請填寫投資網誌所有認證欄位', color: 'red' })
+  if (!config?.authorSlug || !config?.userId) {
+    useToast().add({ title: '請填寫投資網誌所有認證欄位（作者 Slug 和 User ID）', color: 'red' })
     return
   }
 
@@ -319,10 +374,8 @@ async function saveBlogAuth() {
     await $fetch(`/api/authors/${form.value.authorId}/blog-auth`, {
       method: 'PUT',
       body: {
-        clientId: config.clientId,
-        account: config.account,
-        password: config.password,
         authorSlug: config.authorSlug,
+        userId: config.userId,
       },
     })
     useToast().add({
@@ -331,20 +384,55 @@ async function saveBlogAuth() {
       color: 'green',
     })
     blogAuth.value = await $fetch<CMoneyAuthStatus>(`/api/authors/${form.value.authorId}/blog-auth`)
-    // 清空密碼
-    if (isFromInput) {
-      form.value.inputConfig = { ...inputConfig, password: '' }
-    } else {
-      form.value.outputConfig['investment_blog'] = { ...outputConfig, password: '' }
-    }
   } catch (error: any) {
     useToast().add({
       title: '投資網誌認證失敗',
-      description: error.data?.message || error.message || '請檢查帳號密碼',
+      description: error.data?.message || error.message || '請檢查設定',
       color: 'red',
     })
   } finally {
     isSavingBlogAuth.value = false
+  }
+}
+
+// Threads OAuth 連結
+async function connectThreads() {
+  if (!form.value.authorId) {
+    useToast().add({ title: '請先選擇作者', color: 'red' })
+    return
+  }
+  try {
+    const data = await $fetch<{ url: string }>(`/api/authors/${form.value.authorId}/threads-auth/authorize`)
+    window.location.href = data.url
+  } catch (error: any) {
+    useToast().add({
+      title: 'Threads 授權失敗',
+      description: error.data?.message || error.message,
+      color: 'red',
+    })
+  }
+}
+
+// Threads 斷開連結
+async function disconnectThreads() {
+  if (!form.value.authorId) return
+  isDisconnectingThreads.value = true
+  try {
+    await $fetch(`/api/authors/${form.value.authorId}/threads-auth`, { method: 'DELETE' })
+    threadsAuth.value = { hasAuth: false, username: null, tokenExpiresAt: null, isTokenValid: false }
+    useToast().add({
+      title: 'Threads 帳號已斷開連結',
+      icon: 'i-heroicons-check-circle',
+      color: 'green',
+    })
+  } catch (error: any) {
+    useToast().add({
+      title: '斷開失敗',
+      description: error.data?.message || error.message,
+      color: 'red',
+    })
+  } finally {
+    isDisconnectingThreads.value = false
   }
 }
 
@@ -374,7 +462,11 @@ function toggleOutputPlatform(platform: string) {
   if (index === -1) {
     form.value.outputPlatforms.push(platform)
     // 初始化該平台的配置
-    form.value.outputConfig[platform] = {}
+    const defaultConfig: Record<string, string> = {}
+    if (platform === 'cmoney_classmate') {
+      defaultConfig.articleType = 'personal'
+    }
+    form.value.outputConfig[platform] = defaultConfig
   } else {
     form.value.outputPlatforms.splice(index, 1)
     delete form.value.outputConfig[platform]
@@ -569,17 +661,22 @@ const authorOptions = computed(() => {
               <!-- 輸入平台認證狀態 -->
               <template v-if="inputAuthPlatforms.includes(form.inputPlatform) && getAuthStatus(form.inputPlatform)">
                 <UBadge
-                  :color="getAuthStatus(form.inputPlatform)?.tokenValid ? 'green' : 'yellow'"
+                  :color="getAuthStatus(form.inputPlatform)?.hasAuth ? 'green' : 'yellow'"
                   size="sm"
                 >
-                  {{ getAuthStatus(form.inputPlatform)?.tokenValid ? '已認證' : 'Token 過期' }}
+                  {{ getAuthStatus(form.inputPlatform)?.hasAuth ? '已設定' : '未設定' }}
                 </UBadge>
               </template>
             </div>
 
-            <!-- 已認證顯示帳號 -->
+            <!-- 已認證顯示資訊 -->
             <div v-if="inputAuthPlatforms.includes(form.inputPlatform) && getAuthStatus(form.inputPlatform)?.hasAuth" class="text-sm text-gray-600">
-              帳號：{{ getAuthStatus(form.inputPlatform)?.account }}
+              <template v-if="form.inputPlatform === 'cmoney_classmate'">
+                {{ (getAuthStatus(form.inputPlatform) as CMoneyAuthStatus)?.authMethod === 'refresh_token' ? '認證方式：Refresh Token' : `帳號：${getAuthStatus(form.inputPlatform)?.account}` }}
+              </template>
+              <template v-else>
+                {{ getAuthStatus(form.inputPlatform)?.account ? `帳號：${getAuthStatus(form.inputPlatform)?.account}` : `Slug：${(getAuthStatus(form.inputPlatform) as any)?.authorSlug}` }}
+              </template>
             </div>
 
             <UFormGroup
@@ -685,30 +782,56 @@ const authorOptions = computed(() => {
             <!-- 認證狀態 Badge -->
             <template v-if="authPlatforms.includes(outputItem) && getAuthStatus(outputItem)">
               <UBadge
-                :color="getAuthStatus(outputItem)?.tokenValid ? 'green' : 'yellow'"
+                :color="getAuthStatus(outputItem)?.hasAuth ? 'green' : 'yellow'"
                 size="sm"
               >
-                {{ getAuthStatus(outputItem)?.tokenValid ? '已認證' : 'Token 過期' }}
+                {{ getAuthStatus(outputItem)?.hasAuth ? '已設定' : '未設定' }}
               </UBadge>
             </template>
           </div>
 
-          <!-- 已認證顯示帳號 -->
+          <!-- 已認證顯示資訊 -->
           <div v-if="authPlatforms.includes(outputItem) && getAuthStatus(outputItem)?.hasAuth" class="text-sm text-gray-600">
-            帳號：{{ getAuthStatus(outputItem)?.account }}
+            <template v-if="outputItem === 'cmoney_classmate'">
+              {{ (getAuthStatus(outputItem) as CMoneyAuthStatus)?.authMethod === 'refresh_token' ? '認證方式：Refresh Token' : `帳號：${getAuthStatus(outputItem)?.account}` }}
+            </template>
+            <template v-else>
+              {{ getAuthStatus(outputItem)?.account ? `帳號：${getAuthStatus(outputItem)?.account}` : `Slug：${(getAuthStatus(outputItem) as any)?.authorSlug}` }}
+            </template>
           </div>
 
-          <UFormGroup
-            v-for="field in (outputConfigFields[outputItem] || [])"
-            :key="field.key"
-            :label="field.label"
-          >
-            <UInput
-              v-model="form.outputConfig[outputItem][field.key]"
-              :type="field.type || 'text'"
-              :placeholder="field.placeholder"
-            />
+          <!-- 同學會文章類型選擇 -->
+          <UFormGroup v-if="outputItem === 'cmoney_classmate'" label="文章類型">
+            <div class="grid grid-cols-3 gap-2">
+              <button
+                v-for="type in forumArticleTypes"
+                :key="type.value"
+                type="button"
+                class="p-2 rounded-lg border-2 transition-colors text-center text-sm font-medium"
+                :class="[
+                  form.outputConfig[outputItem]?.articleType === type.value
+                    ? 'border-green-600 bg-green-100 text-green-900'
+                    : 'border-gray-200 bg-white hover:border-gray-300 text-gray-700'
+                ]"
+                @click="form.outputConfig[outputItem] = { ...form.outputConfig[outputItem], articleType: type.value }"
+              >
+                {{ type.label }}
+              </button>
+            </div>
           </UFormGroup>
+
+          <template v-for="field in (outputConfigFields[outputItem] || [])" :key="field.key">
+            <UFormGroup
+              v-if="field.key !== 'boardId' || form.outputConfig[outputItem]?.articleType === 'group_v2'"
+              :label="field.label"
+            >
+              <UInput
+                v-model="form.outputConfig[outputItem][field.key]"
+                :type="field.type || 'text'"
+                :placeholder="field.placeholder"
+              />
+            </UFormGroup>
+          </template>
 
           <!-- CMoney 認證按鈕 -->
           <div
@@ -726,8 +849,37 @@ const authorOptions = computed(() => {
             </UButton>
           </div>
 
-          <!-- OAuth 授權提示 -->
-          <div v-if="oauthPlatforms.includes(outputItem)" class="flex items-center gap-2 text-sm text-amber-600">
+          <!-- Threads OAuth 連結 -->
+          <template v-if="outputItem === 'threads'">
+            <div v-if="threadsAuth?.hasAuth" class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <UBadge color="green" size="sm">已連結</UBadge>
+                <span class="text-sm text-gray-600">@{{ threadsAuth.username }}</span>
+              </div>
+              <UButton
+                size="sm"
+                color="red"
+                variant="ghost"
+                :loading="isDisconnectingThreads"
+                @click="disconnectThreads"
+              >
+                斷開連結
+              </UButton>
+            </div>
+            <div v-else class="flex items-center justify-between">
+              <span class="text-sm text-amber-600">尚未連結 Threads 帳號</span>
+              <UButton
+                size="sm"
+                color="amber"
+                :disabled="!form.authorId"
+                @click="connectThreads"
+              >
+                連結 Threads 帳號
+              </UButton>
+            </div>
+          </template>
+          <!-- 其他 OAuth 平台提示 -->
+          <div v-else-if="oauthPlatforms.includes(outputItem)" class="flex items-center gap-2 text-sm text-amber-600">
             <UIcon name="i-heroicons-exclamation-triangle" class="w-4 h-4 flex-shrink-0" />
             <span>此平台需要 OAuth 授權</span>
           </div>

@@ -4,15 +4,14 @@
  * 呼叫 CMoney Forum API 發表文章
  *
  * 環境變數:
- * - CMONEY_FORUM_API_URL: 發文 API (預設測試機)
+ * - CMONEY_FORUM_API_URL: Forum API 基底 URL (預設測試機 https://outpost.cmoney.tw/forumservice/api)
  * - CMONEY_FORUM_ARTICLE_URL: 文章連結前綴 (預設測試機)
  */
 
-const ARTICLE_CREATE_URL = process.env.CMONEY_FORUM_API_URL
-  || 'https://outpost.cmoney.tw/forumservice/api/Article/Create'
-
 const ARTICLE_BASE_URL = process.env.CMONEY_FORUM_ARTICLE_URL
   || 'https://outpost.cmoney.tw/follow/article'
+
+export type ForumArticleType = 'personal' | 'group_v1' | 'group_v2'
 
 export interface StockTag {
   key: string // 股票代號，如 "2330"
@@ -25,6 +24,8 @@ export interface ForumPublishOptions {
   text: string
   stockTags?: StockTag[]
   imageUrls?: string[]
+  articleType?: ForumArticleType // 個版 | 社團v1 | 社團v2（預設個版）
+  boardId?: string // 社團v2 需要的 board ID
 }
 
 export interface ForumPublishResult {
@@ -41,7 +42,9 @@ function buildArticlePayload(
   title: string,
   text: string,
   stockTags: StockTag[],
-  imageUrls: string[]
+  imageUrls: string[],
+  articleType: ForumArticleType = 'personal',
+  boardId?: string
 ): Record<string, any> {
   const commodityTags = stockTags.map((tag) => ({
     type: 'Stock',
@@ -54,11 +57,36 @@ function buildArticlePayload(
     url,
   }))
 
-  return {
+  const payload: Record<string, any> = {
     title: String(title),
     text: String(text),
     commodityTags,
     multiMedia,
+  }
+
+  // 社團v2 需要 boardId
+  if (articleType === 'group_v2' && boardId) {
+    payload.boardId = boardId
+  }
+
+  return payload
+}
+
+/**
+ * 根據文章類型取得對應的 API URL
+ */
+function getArticleCreateUrl(articleType: ForumArticleType = 'personal'): string {
+  const baseUrl = process.env.CMONEY_FORUM_API_URL
+    || 'https://outpost.cmoney.tw/forumservice/api'
+
+  switch (articleType) {
+    case 'group_v1':
+      return `${baseUrl}/GroupArticle/Create`
+    case 'group_v2':
+      return `${baseUrl}/BoardArticle/Create`
+    case 'personal':
+    default:
+      return `${baseUrl}/Article/Create`
   }
 }
 
@@ -68,7 +96,7 @@ function buildArticlePayload(
 export async function publishToForum(
   options: ForumPublishOptions
 ): Promise<ForumPublishResult> {
-  const { accessToken, title, text, stockTags = [], imageUrls = [] } = options
+  const { accessToken, title, text, stockTags = [], imageUrls = [], articleType = 'personal', boardId } = options
 
   const headers = {
     accept: 'application/json',
@@ -77,14 +105,17 @@ export async function publishToForum(
     Authorization: `Bearer ${accessToken}`,
   }
 
-  const payload = buildArticlePayload(title, text, stockTags, imageUrls)
+  const payload = buildArticlePayload(title, text, stockTags, imageUrls, articleType, boardId)
+  const articleCreateUrl = getArticleCreateUrl(articleType)
 
-  console.log('[CMoney Forum] 正在發文...')
+  const articleTypeLabel = { personal: '個版', group_v1: '社團v1', group_v2: '社團v2' }[articleType]
+  console.log(`[CMoney Forum] 正在發文 (${articleTypeLabel})...`)
   console.log('[CMoney Forum] 標題:', title)
   console.log('[CMoney Forum] 股票標籤:', stockTags.map((t) => t.key).join(', ') || '無')
+  if (articleType === 'group_v2') console.log('[CMoney Forum] Board ID:', boardId)
 
   try {
-    const response = await fetch(ARTICLE_CREATE_URL, {
+    const response = await fetch(articleCreateUrl, {
       method: 'POST',
       headers,
       body: JSON.stringify(payload),

@@ -5,7 +5,6 @@
 
 import { eq } from 'drizzle-orm'
 import { useDB, schema } from '~/server/database/client'
-import { isBlogTokenExpired } from '~/server/services/cmoney'
 
 export default defineEventHandler(async (event) => {
   const authorId = getRouterParam(event, 'id')
@@ -30,22 +29,12 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  // 檢查是否有認證設定
-  const hasAuth = !!(
-    author.blogClientId &&
-    author.blogAccount &&
-    author.blogPassword &&
-    author.blogAuthorSlug
-  )
-
-  // 檢查 Token 是否有效
-  const tokenValid = hasAuth && author.blogAccessToken && !isBlogTokenExpired(author.blogTokenExpiresAt)
+  // 檢查是否有認證設定（只需 authorSlug + userId）
+  const hasAuth = !!(author.blogAuthorSlug && author.blogUserId)
 
   return {
     hasAuth,
-    account: author.blogAccount || null,
     authorSlug: author.blogAuthorSlug || null,
-    tokenValid,
-    tokenExpiresAt: author.blogTokenExpiresAt?.toISOString() || null,
+    userId: author.blogUserId || null,
   }
 })

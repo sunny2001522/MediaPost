@@ -2,7 +2,8 @@ import { nanoid } from 'nanoid'
 import { eq } from 'drizzle-orm'
 import { useDB, schema } from '~/server/database/client'
 import { publishToThreads, publishToFacebook, publishToInstagram } from '~/server/services/publish/meta'
-import { getValidToken, publishToForum, extractStockTags, getValidBlogToken, publishToBlog, convertToHtml, formatStockTagsForBlog } from '~/server/services/cmoney'
+import { getValidToken, publishToForum, extractStockTags, publishToBlog, convertToHtml, formatStockTagsForBlog } from '~/server/services/cmoney'
+import { getValidThreadsToken } from '~/server/services/threads/auth'
 
 interface PublishBody {
   editId?: string
@@ -19,6 +20,8 @@ interface PublishBody {
     // CMoney 同學會專用
     title?: string // 文章標題
     authorId?: string // 指定作者 ID（如果無法從 podcast/project 推斷）
+    articleType?: 'personal' | 'group_v1' | 'group_v2' // 發文類型
+    boardId?: string // 社團v2 的 board ID
   }>
 }
 
@@ -56,8 +59,58 @@ export default defineEventHandler(async (event) => {
         results.push({ platform: 'clipboard', status: 'success' })
 
       } else if (platform === 'threads') {
-        // Threads 發布
-        if (!config.accessToken || !config.userId) {
+        // Threads 發布 - 自動從 DB 讀取 token
+        let threadsToken: string | undefined = config.accessToken
+        let threadsUserId: string | undefined = config.userId
+
+        // 如果前端沒直接傳 token，從 DB 取得（透過 authorId）
+        if (!threadsToken || !threadsUserId) {
+          let authorId: string | null = null
+
+          if (podcastId) {
+            const podcast = await db.query.podcasts.findFirst({
+              where: eq(schema.podcasts.id, podcastId),
+            })
+            authorId = podcast?.authorId || null
+          }
+          if (!authorId && projectId) {
+            const project = await db.query.projects.findFirst({
+              where: eq(schema.projects.id, projectId),
+            })
+            authorId = project?.authorId || null
+          }
+          if (!authorId && config.authorId) {
+            authorId = config.authorId
+          }
+
+          if (authorId) {
+            try {
+              const tokenData = await getValidThreadsToken(authorId)
+              threadsToken = tokenData.accessToken
+              threadsUserId = tokenData.userId
+            } catch (error: any) {
+              await db.insert(schema.publishRecords).values({
+                id: recordId,
+                editId: editId || null,
+                podcastId: podcastId || null,
+                projectId: projectId || null,
+                platform: 'threads',
+                content,
+                status: 'failed',
+                errorMessage: error.message || '請先連結 Threads 帳號',
+                createdAt: new Date(),
+              })
+              results.push({
+                platform: 'threads',
+                status: 'failed',
+                error: error.message || '請先連結 Threads 帳號',
+              })
+              continue
+            }
+          }
+        }
+
+        if (!threadsToken || !threadsUserId) {
           await db.insert(schema.publishRecords).values({
             id: recordId,
             editId: editId || null,
@@ -66,21 +119,21 @@ export default defineEventHandler(async (event) => {
             platform: 'threads',
             content,
             status: 'failed',
-            errorMessage: 'Missing Threads access token or user ID',
+            errorMessage: '無法取得 Threads 認證，請先連結 Threads 帳號',
             createdAt: new Date()
           })
           results.push({
             platform: 'threads',
             status: 'failed',
-            error: 'Missing Threads access token or user ID. Please configure in settings.'
+            error: '無法取得 Threads 認證，請先連結 Threads 帳號'
           })
           continue
         }
 
         const result = await publishToThreads(
-          config.userId,
+          threadsUserId,
           content,
-          config.accessToken,
+          threadsToken,
           config.imageUrl
         )
 
@@ -277,7 +330,10 @@ export default defineEventHandler(async (event) => {
           where: eq(schema.authors.id, authorId),
         })
 
-        if (!author?.cmoneyClientId || !author?.cmoneyAccount || !author?.cmoneyPassword) {
+        const hasCMoneyAuth = author?.cmoneyClientId && (
+          (author?.cmoneyAccount && author?.cmoneyPassword) || author?.cmoneyRefreshToken
+        )
+        if (!hasCMoneyAuth) {
           await db.insert(schema.publishRecords).values({
             id: recordId,
             editId: editId || null,
@@ -307,6 +363,27 @@ export default defineEventHandler(async (event) => {
           // 組合標題（使用 config.title 或取內容前 50 字）
           const title = config.title || content.slice(0, 50).replace(/\n/g, ' ')
 
+          // 從 project outputConfig 取得 articleType 和 boardId
+          let articleType = config.articleType as 'personal' | 'group_v1' | 'group_v2' | undefined
+          let boardId = config.boardId
+
+          // 如果 config 沒有，嘗試從 project outputConfig 取得
+          if (!articleType && projectId) {
+            const proj = await db.query.projects.findFirst({
+              where: eq(schema.projects.id, projectId),
+            })
+            if (proj?.outputConfig) {
+              const outputConfig = typeof proj.outputConfig === 'string'
+                ? JSON.parse(proj.outputConfig)
+                : proj.outputConfig
+              const cmoneyConfig = outputConfig?.cmoney_classmate || outputConfig?.cmoney
+              if (cmoneyConfig) {
+                articleType = cmoneyConfig.articleType
+                boardId = boardId || cmoneyConfig.boardId
+              }
+            }
+          }
+
           // 發文
           const result = await publishToForum({
             accessToken: token,
@@ -314,6 +391,8 @@ export default defineEventHandler(async (event) => {
             text: content,
             stockTags,
             imageUrls: config.imageUrl ? [config.imageUrl] : [],
+            articleType,
+            boardId,
           })
 
           await db.insert(schema.publishRecords).values({
@@ -406,7 +485,7 @@ export default defineEventHandler(async (event) => {
           where: eq(schema.authors.id, authorId),
         })
 
-        if (!author?.blogClientId || !author?.blogAccount || !author?.blogPassword || !author?.blogAuthorSlug) {
+        if (!author?.blogAuthorSlug || !author?.blogUserId) {
           await db.insert(schema.publishRecords).values({
             id: recordId,
             editId: editId || null,
@@ -427,9 +506,6 @@ export default defineEventHandler(async (event) => {
         }
 
         try {
-          // 取得有效 Token
-          const token = await getValidBlogToken(authorId)
-
           // AI 提取股票標籤並轉換為投資網誌格式
           const extractedStocks = await extractStockTags(content)
           const stockTags = formatStockTagsForBlog(extractedStocks)
@@ -440,9 +516,9 @@ export default defineEventHandler(async (event) => {
           // 將內容轉換為 HTML
           const htmlContent = convertToHtml(content)
 
-          // 發文
+          // 發文（使用 Admin API）
           const result = await publishToBlog({
-            accessToken: token,
+            userId: author.blogUserId,
             authorSlug: author.blogAuthorSlug,
             title,
             content: htmlContent,

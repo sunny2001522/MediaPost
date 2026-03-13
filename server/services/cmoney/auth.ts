@@ -18,6 +18,7 @@ export interface CMoneyTokenResult {
   tokenType: string
   expiresIn: number // 秒（通常 86400 = 24 小時）
   expiresAt: Date
+  refreshToken?: string // 回傳的新 refresh_token（用於 rotation）
 }
 
 export interface CMoneyTokenError {
@@ -92,6 +93,83 @@ export async function fetchCMoneyToken(
         tokenType: data.token_type || 'Bearer',
         expiresIn,
         expiresAt,
+        refreshToken: data.refresh_token || undefined,
+      },
+    }
+  } catch (error: any) {
+    if (error.cause?.code === 'ECONNREFUSED') {
+      return {
+        success: false,
+        error: '連線失敗，請確認網路連線',
+      }
+    }
+    return {
+      success: false,
+      error: error.message || '未知錯誤',
+    }
+  }
+}
+
+/**
+ * 呼叫 CMoney Identity API 用 Refresh Token 取得新 Token
+ */
+export async function fetchCMoneyTokenByRefreshToken(
+  clientId: string,
+  refreshToken: string
+): Promise<FetchTokenResult> {
+  const payload = new URLSearchParams({
+    grant_type: 'refresh_token',
+    client_id: clientId,
+    client_secret: '',
+    refresh_token: refreshToken,
+  })
+
+  try {
+    const response = await fetch(IDENTITY_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: payload.toString(),
+    })
+
+    if (response.status === 401) {
+      return {
+        success: false,
+        error: '認證失敗，Refresh Token 無效或已過期',
+        statusCode: 401,
+      }
+    }
+
+    if (!response.ok) {
+      const text = await response.text()
+      return {
+        success: false,
+        error: `伺服器錯誤 (${response.status}): ${text.slice(0, 200)}`,
+        statusCode: response.status,
+      }
+    }
+
+    const data = await response.json()
+
+    if (!data.access_token) {
+      return {
+        success: false,
+        error: '回應中沒有 access_token',
+      }
+    }
+
+    const expiresIn = data.expires_in || 86400
+    const expiresAt = new Date(Date.now() + expiresIn * 1000)
+
+    return {
+      success: true,
+      data: {
+        accessToken: data.access_token,
+        tokenType: data.token_type || 'Bearer',
+        expiresIn,
+        expiresAt,
+        refreshToken: data.refresh_token || undefined,
       },
     }
   } catch (error: any) {
@@ -119,6 +197,7 @@ export function isTokenExpired(expiresAt: Date | null | undefined): boolean {
 /**
  * 取得作者的有效 CMoney Token
  * 如果 Token 過期會自動更新
+ * 優先使用 refresh_token，fallback 到 password
  */
 export async function getValidToken(authorId: string): Promise<string> {
   const db = useDB()
@@ -132,7 +211,10 @@ export async function getValidToken(authorId: string): Promise<string> {
     throw new Error(`找不到作者: ${authorId}`)
   }
 
-  if (!author.cmoneyClientId || !author.cmoneyAccount || !author.cmoneyPassword) {
+  const hasRefreshToken = !!(author.cmoneyClientId && author.cmoneyRefreshToken)
+  const hasPassword = !!(author.cmoneyClientId && author.cmoneyAccount && author.cmoneyPassword)
+
+  if (!hasRefreshToken && !hasPassword) {
     throw new Error('作者未設定 CMoney 認證資訊')
   }
 
@@ -144,24 +226,52 @@ export async function getValidToken(authorId: string): Promise<string> {
   // Token 過期或不存在，重新取得
   console.log(`[CMoney Auth] 正在更新 Token (作者: ${author.name})...`)
 
-  const result = await fetchCMoneyToken(
-    author.cmoneyClientId,
-    author.cmoneyAccount,
-    author.cmoneyPassword
-  )
+  let result: FetchTokenResult
+
+  // 優先使用 refresh_token
+  if (hasRefreshToken) {
+    console.log(`[CMoney Auth] 使用 refresh_token 認證方式`)
+    result = await fetchCMoneyTokenByRefreshToken(
+      author.cmoneyClientId!,
+      author.cmoneyRefreshToken!
+    )
+
+    // refresh_token 失敗時 fallback 到 password
+    if (!result.success && hasPassword) {
+      console.log(`[CMoney Auth] refresh_token 失敗，fallback 到 password 認證`)
+      result = await fetchCMoneyToken(
+        author.cmoneyClientId!,
+        author.cmoneyAccount!,
+        author.cmoneyPassword!
+      )
+    }
+  } else {
+    result = await fetchCMoneyToken(
+      author.cmoneyClientId!,
+      author.cmoneyAccount!,
+      author.cmoneyPassword!
+    )
+  }
 
   if (!result.success) {
     throw new Error(`取得 Token 失敗: ${result.error}`)
   }
 
-  // 更新資料庫中的 Token
+  // 更新資料庫中的 Token，若回傳新 refresh_token 則一併更新
+  const updateData: Record<string, any> = {
+    cmoneyAccessToken: result.data.accessToken,
+    cmoneyTokenExpiresAt: result.data.expiresAt,
+    updatedAt: new Date(),
+  }
+
+  if (result.data.refreshToken) {
+    updateData.cmoneyRefreshToken = result.data.refreshToken
+    console.log(`[CMoney Auth] Refresh Token 已更新（rotation）`)
+  }
+
   await db
     .update(schema.authors)
-    .set({
-      cmoneyAccessToken: result.data.accessToken,
-      cmoneyTokenExpiresAt: result.data.expiresAt,
-      updatedAt: new Date(),
-    })
+    .set(updateData)
     .where(eq(schema.authors.id, authorId))
 
   console.log(`[CMoney Auth] Token 更新成功 (到期: ${result.data.expiresAt.toISOString()})`)

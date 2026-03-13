@@ -31,13 +31,20 @@ export default defineEventHandler(async (event) => {
   }
 
   // 檢查是否有認證設定
-  const hasAuth = !!(author.cmoneyClientId && author.cmoneyAccount && author.cmoneyPassword)
+  const hasPasswordAuth = !!(author.cmoneyClientId && author.cmoneyAccount && author.cmoneyPassword)
+  const hasRefreshTokenAuth = !!(author.cmoneyClientId && author.cmoneyRefreshToken)
+  const hasAuth = hasPasswordAuth || hasRefreshTokenAuth
 
   // 檢查 Token 是否有效
-  const tokenValid = hasAuth && author.cmoneyAccessToken && !isTokenExpired(author.cmoneyTokenExpiresAt)
+  const tokenValid = hasAuth && !!author.cmoneyAccessToken && !isTokenExpired(author.cmoneyTokenExpiresAt)
+
+  // 判斷認證方式
+  const authMethod = hasRefreshTokenAuth ? 'refresh_token' : hasPasswordAuth ? 'password' : null
 
   return {
     hasAuth,
+    authMethod,
+    hasRefreshToken: hasRefreshTokenAuth,
     account: author.cmoneyAccount || null,
     tokenValid,
     tokenExpiresAt: author.cmoneyTokenExpiresAt?.toISOString() || null,

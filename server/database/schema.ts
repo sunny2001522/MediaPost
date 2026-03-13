@@ -54,6 +54,7 @@ export const authors = sqliteTable('authors', {
   cmoneyPassword: text('cmoney_password'), // 密碼
   cmoneyAccessToken: text('cmoney_access_token'), // 快取的 Token
   cmoneyTokenExpiresAt: integer('cmoney_token_expires_at', { mode: 'timestamp' }), // Token 到期時間
+  cmoneyRefreshToken: text('cmoney_refresh_token'), // Refresh Token（用於 grant_type=refresh_token）
   // CMoney 整合 - 投資網誌發文認證（使用 outpost.cmoney.tw 測試機）
   blogClientId: text('blog_client_id'), // 投資網誌 OAuth Client ID
   blogAccount: text('blog_account'), // 投資網誌登入 email
@@ -61,6 +62,7 @@ export const authors = sqliteTable('authors', {
   blogAccessToken: text('blog_access_token'), // 投資網誌快取的 Token
   blogTokenExpiresAt: integer('blog_token_expires_at', { mode: 'timestamp' }), // 投資網誌 Token 到期時間
   blogAuthorSlug: text('blog_author_slug'), // 投資網誌作者 slug（如 "cmoney"）
+  blogUserId: text('blog_user_id'), // 投資網誌 Admin API userId（如 "6870918203145058"）
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 })
@@ -350,14 +352,73 @@ export const youtubeVideos = sqliteTable('youtube_videos', {
   processedAt: integer('processed_at', { mode: 'timestamp' }),
 })
 
+// ========== 投資網誌文章表 ==========
+
+// 投資網誌文章記錄（用於去重 + 追蹤處理狀態）
+export const blogArticles = sqliteTable('blog_articles', {
+  id: text('id').primaryKey(),
+
+  // 投資網誌原始資料
+  articleId: text('article_id').notNull().unique(), // 去重關鍵
+  authorId: text('author_id').notNull().references(() => authors.id, { onDelete: 'cascade' }),
+  blogAuthorSlug: text('blog_author_slug').notNull(), // 投資網誌作者 slug
+  title: text('title').notNull(),
+  content: text('content').notNull(), // 純文字版
+  tags: text('tags'), // JSON array
+  articleCreatedAt: integer('article_created_at'), // 原始發布時間 (Unix ms)
+  pricingModel: text('pricing_model'), // 'free' | 'paid'
+
+  // 處理狀態
+  processStatus: text('process_status').notNull().default('pending'),
+  // 'pending' | 'processing' | 'completed' | 'failed' | 'skipped'
+  publishRecordId: text('publish_record_id').references(() => publishRecords.id, { onDelete: 'set null' }),
+
+  // 錯誤追蹤
+  errorMessage: text('error_message'),
+
+  discoveredAt: integer('discovered_at', { mode: 'timestamp' }).notNull(),
+  processedAt: integer('processed_at', { mode: 'timestamp' }),
+})
+
+// ========== 同學會文章表 ==========
+
+// 同學會文章記錄（用於去重 + 追蹤處理狀態）
+export const groupArticles = sqliteTable('group_articles', {
+  id: text('id').primaryKey(),
+
+  // 同學會原始資料
+  articleId: text('article_id').notNull().unique(), // 去重關鍵（CMoney articleId）
+  authorId: text('author_id').notNull().references(() => authors.id, { onDelete: 'cascade' }),
+  boardId: text('board_id').notNull(), // 社團 Board ID
+  creatorId: integer('creator_id'), // CMoney 會員 ID
+  creatorName: text('creator_name'), // 發文者名稱
+  title: text('title'), // 文章標題
+  content: text('content').notNull(), // 文章內容
+  articleCreatedAt: integer('article_created_at'), // 原始發布時間 (Unix ms)
+
+  // 處理狀態
+  processStatus: text('process_status').notNull().default('pending'),
+  // 'pending' | 'processing' | 'completed' | 'failed' | 'skipped'
+  publishRecordId: text('publish_record_id').references(() => publishRecords.id, { onDelete: 'set null' }),
+
+  // 錯誤追蹤
+  errorMessage: text('error_message'),
+
+  discoveredAt: integer('discovered_at', { mode: 'timestamp' }).notNull(),
+  processedAt: integer('processed_at', { mode: 'timestamp' }),
+})
+
 // ========== 發布系統表 ==========
 
 // 社交帳號連接
 export const socialAccounts = sqliteTable('social_accounts', {
   id: text('id').primaryKey(),
 
+  authorId: text('author_id').notNull()
+    .references(() => authors.id, { onDelete: 'cascade' }),
   platform: text('platform').notNull(), // 'threads'
   platformUserId: text('platform_user_id'),
+  platformUsername: text('platform_username'), // e.g. Threads @username
 
   accessToken: text('access_token'), // 加密儲存
   tokenExpiresAt: integer('token_expires_at', { mode: 'timestamp' }),
@@ -431,3 +492,9 @@ export type NewYoutubeVideo = typeof youtubeVideos.$inferInsert
 
 export type CmoneyPodcastEpisode = typeof cmoneyPodcastEpisodes.$inferSelect
 export type NewCmoneyPodcastEpisode = typeof cmoneyPodcastEpisodes.$inferInsert
+
+export type BlogArticle = typeof blogArticles.$inferSelect
+export type NewBlogArticle = typeof blogArticles.$inferInsert
+
+export type GroupArticle = typeof groupArticles.$inferSelect
+export type NewGroupArticle = typeof groupArticles.$inferInsert
