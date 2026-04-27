@@ -27,9 +27,9 @@ export default defineNuxtConfig({
     blobReadWriteToken: process.env.BLOB_READ_WRITE_TOKEN,
 
     // Threads
-    threadsClientId: process.env.THREADS_CLIENT_ID,
-    threadsClientSecret: process.env.THREADS_CLIENT_SECRET,
-    threadsRedirectUri: process.env.THREADS_REDIRECT_URI,
+    threadsClientId: process.env.THREADS_CLIENT_ID || '',
+    threadsClientSecret: process.env.THREADS_CLIENT_SECRET || '',
+    threadsRedirectUri: process.env.THREADS_REDIRECT_URI || '',
 
     // Inngest
     inngestEventKey: process.env.INNGEST_EVENT_KEY,
