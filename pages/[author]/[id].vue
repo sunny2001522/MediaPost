@@ -345,6 +345,8 @@ async function handleRetryTranscribe() {
           :is-saving="isSaving"
           :edit-id="generation?.generations?.[0]?.id || (generation as any)?.id"
           :podcast-id="podcastId"
+          :project-id="currentProject?.id"
+          :author-id="podcast?.author?.id"
           @save="saveEdit"
           @copy="copyToClipboard"
         />

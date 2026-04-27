@@ -6,6 +6,8 @@ interface Props {
   isSaving?: boolean
   editId?: string
   podcastId?: string
+  projectId?: string
+  authorId?: string
   preferenceGuidelines?: string | null
 }
 
@@ -131,6 +133,8 @@ const isPublishModalOpen = ref(false)
       :content="content"
       :edit-id="editId"
       :podcast-id="podcastId"
+      :project-id="projectId"
+      :author-id="authorId"
     />
   </div>
 </template>

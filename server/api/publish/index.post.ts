@@ -39,6 +39,25 @@ export default defineEventHandler(async (event) => {
   const db = useDB()
   const results: Array<{ platform: string; status: string; postUrl?: string; postId?: string; error?: string }> = []
 
+  // 驗證 FK 參照是否存在（避免 FOREIGN KEY constraint 錯誤）
+  let validEditId: string | null = editId || null
+  if (validEditId) {
+    const [editExists] = await db.select({ id: schema.edits.id }).from(schema.edits).where(eq(schema.edits.id, validEditId)).limit(1)
+    if (!editExists) validEditId = null
+  }
+
+  let validPodcastId: string | null = podcastId || null
+  if (validPodcastId) {
+    const [podcastExists] = await db.select({ id: schema.podcasts.id }).from(schema.podcasts).where(eq(schema.podcasts.id, validPodcastId)).limit(1)
+    if (!podcastExists) validPodcastId = null
+  }
+
+  let validProjectId: string | null = projectId || null
+  if (validProjectId) {
+    const [projectExists] = await db.select({ id: schema.projects.id }).from(schema.projects).where(eq(schema.projects.id, validProjectId)).limit(1)
+    if (!projectExists) validProjectId = null
+  }
+
   for (const platform of platforms) {
     const config = platformConfigs?.[platform] || {}
     const recordId = nanoid()
@@ -48,9 +67,9 @@ export default defineEventHandler(async (event) => {
         // 剪貼簿由前端處理，這裡只記錄
         await db.insert(schema.publishRecords).values({
           id: recordId,
-          editId: editId || null,
-          podcastId: podcastId || null,
-          projectId: projectId || null,
+          editId: validEditId,
+          podcastId: validPodcastId,
+          projectId: validProjectId,
           platform: 'clipboard',
           content,
           status: 'success',
@@ -91,9 +110,9 @@ export default defineEventHandler(async (event) => {
             } catch (error: any) {
               await db.insert(schema.publishRecords).values({
                 id: recordId,
-                editId: editId || null,
-                podcastId: podcastId || null,
-                projectId: projectId || null,
+                editId: validEditId,
+                podcastId: validPodcastId,
+                projectId: validProjectId,
                 platform: 'threads',
                 content,
                 status: 'failed',
@@ -113,9 +132,9 @@ export default defineEventHandler(async (event) => {
         if (!threadsToken || !threadsUserId) {
           await db.insert(schema.publishRecords).values({
             id: recordId,
-            editId: editId || null,
-            podcastId: podcastId || null,
-            projectId: projectId || null,
+            editId: validEditId,
+            podcastId: validPodcastId,
+            projectId: validProjectId,
             platform: 'threads',
             content,
             status: 'failed',
@@ -139,9 +158,9 @@ export default defineEventHandler(async (event) => {
 
         await db.insert(schema.publishRecords).values({
           id: recordId,
-          editId: editId || null,
-          podcastId: podcastId || null,
-          projectId: projectId || null,
+          editId: validEditId,
+          podcastId: validPodcastId,
+          projectId: validProjectId,
           platform: 'threads',
           content,
           status: result.success ? 'success' : 'failed',
@@ -164,9 +183,9 @@ export default defineEventHandler(async (event) => {
         if (!config.accessToken || !config.pageId) {
           await db.insert(schema.publishRecords).values({
             id: recordId,
-            editId: editId || null,
-            podcastId: podcastId || null,
-            projectId: projectId || null,
+            editId: validEditId,
+            podcastId: validPodcastId,
+            projectId: validProjectId,
             platform: 'facebook',
             content,
             status: 'failed',
@@ -190,9 +209,9 @@ export default defineEventHandler(async (event) => {
 
         await db.insert(schema.publishRecords).values({
           id: recordId,
-          editId: editId || null,
-          podcastId: podcastId || null,
-          projectId: projectId || null,
+          editId: validEditId,
+          podcastId: validPodcastId,
+          projectId: validProjectId,
           platform: 'facebook',
           content,
           status: result.success ? 'success' : 'failed',
@@ -215,9 +234,9 @@ export default defineEventHandler(async (event) => {
         if (!config.accessToken || !config.userId) {
           await db.insert(schema.publishRecords).values({
             id: recordId,
-            editId: editId || null,
-            podcastId: podcastId || null,
-            projectId: projectId || null,
+            editId: validEditId,
+            podcastId: validPodcastId,
+            projectId: validProjectId,
             platform: 'instagram',
             content,
             status: 'failed',
@@ -235,9 +254,9 @@ export default defineEventHandler(async (event) => {
         if (!config.imageUrl) {
           await db.insert(schema.publishRecords).values({
             id: recordId,
-            editId: editId || null,
-            podcastId: podcastId || null,
-            projectId: projectId || null,
+            editId: validEditId,
+            podcastId: validPodcastId,
+            projectId: validProjectId,
             platform: 'instagram',
             content,
             status: 'failed',
@@ -261,9 +280,9 @@ export default defineEventHandler(async (event) => {
 
         await db.insert(schema.publishRecords).values({
           id: recordId,
-          editId: editId || null,
-          podcastId: podcastId || null,
-          projectId: projectId || null,
+          editId: validEditId,
+          podcastId: validPodcastId,
+          projectId: validProjectId,
           platform: 'instagram',
           content,
           status: result.success ? 'success' : 'failed',
@@ -308,9 +327,9 @@ export default defineEventHandler(async (event) => {
         if (!authorId) {
           await db.insert(schema.publishRecords).values({
             id: recordId,
-            editId: editId || null,
-            podcastId: podcastId || null,
-            projectId: projectId || null,
+            editId: validEditId,
+            podcastId: validPodcastId,
+            projectId: validProjectId,
             platform,
             content,
             status: 'failed',
@@ -336,9 +355,9 @@ export default defineEventHandler(async (event) => {
         if (!hasCMoneyAuth) {
           await db.insert(schema.publishRecords).values({
             id: recordId,
-            editId: editId || null,
-            podcastId: podcastId || null,
-            projectId: projectId || null,
+            editId: validEditId,
+            podcastId: validPodcastId,
+            projectId: validProjectId,
             platform,
             content,
             status: 'failed',
@@ -397,9 +416,9 @@ export default defineEventHandler(async (event) => {
 
           await db.insert(schema.publishRecords).values({
             id: recordId,
-            editId: editId || null,
-            podcastId: podcastId || null,
-            projectId: projectId || null,
+            editId: validEditId,
+            podcastId: validPodcastId,
+            projectId: validProjectId,
             platform,
             content,
             status: result.success ? 'success' : 'failed',
@@ -420,9 +439,9 @@ export default defineEventHandler(async (event) => {
           console.error(`[Publish] CMoney 發文錯誤:`, error)
           await db.insert(schema.publishRecords).values({
             id: recordId,
-            editId: editId || null,
-            podcastId: podcastId || null,
-            projectId: projectId || null,
+            editId: validEditId,
+            podcastId: validPodcastId,
+            projectId: validProjectId,
             platform,
             content,
             status: 'failed',
@@ -463,9 +482,9 @@ export default defineEventHandler(async (event) => {
         if (!authorId) {
           await db.insert(schema.publishRecords).values({
             id: recordId,
-            editId: editId || null,
-            podcastId: podcastId || null,
-            projectId: projectId || null,
+            editId: validEditId,
+            podcastId: validPodcastId,
+            projectId: validProjectId,
             platform,
             content,
             status: 'failed',
@@ -488,9 +507,9 @@ export default defineEventHandler(async (event) => {
         if (!author?.blogAuthorSlug || !author?.blogUserId) {
           await db.insert(schema.publishRecords).values({
             id: recordId,
-            editId: editId || null,
-            podcastId: podcastId || null,
-            projectId: projectId || null,
+            editId: validEditId,
+            podcastId: validPodcastId,
+            projectId: validProjectId,
             platform,
             content,
             status: 'failed',
@@ -528,9 +547,9 @@ export default defineEventHandler(async (event) => {
 
           await db.insert(schema.publishRecords).values({
             id: recordId,
-            editId: editId || null,
-            podcastId: podcastId || null,
-            projectId: projectId || null,
+            editId: validEditId,
+            podcastId: validPodcastId,
+            projectId: validProjectId,
             platform,
             content,
             status: result.success ? 'success' : 'failed',
@@ -551,9 +570,9 @@ export default defineEventHandler(async (event) => {
           console.error(`[Publish] 投資網誌發文錯誤:`, error)
           await db.insert(schema.publishRecords).values({
             id: recordId,
-            editId: editId || null,
-            podcastId: podcastId || null,
-            projectId: projectId || null,
+            editId: validEditId,
+            podcastId: validPodcastId,
+            projectId: validProjectId,
             platform,
             content,
             status: 'failed',
@@ -571,9 +590,9 @@ export default defineEventHandler(async (event) => {
         // Line 社群 - 需要 Google Form 整合
         await db.insert(schema.publishRecords).values({
           id: recordId,
-          editId: editId || null,
-          podcastId: podcastId || null,
-          projectId: projectId || null,
+          editId: validEditId,
+          podcastId: validPodcastId,
+          projectId: validProjectId,
           platform,
           content,
           status: 'pending',
